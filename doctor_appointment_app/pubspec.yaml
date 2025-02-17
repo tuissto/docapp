@@ -1,0 +1,61 @@
+name: doctor_appointment_app
+description: A new Flutter project.
+
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  font_awesome_flutter: ^10.7.0
+  table_calendar: ^3.1.2
+  lottie: ^3.1.2
+  dio: ^5.2.1
+  rating_dialog: ^2.0.4
+  shared_preferences: ^2.3.2
+  provider: ^6.1.0
+  cupertino_icons: ^1.0.8
+  firebase_core: ^2.13.0
+  firebase_auth: ^5.0.4
+  cloud_firestore: ^4.5.0
+  js: ^0.6.7
+  syncfusion_flutter_calendar: ^20.4.41
+  google_sign_in: ^6.1.0
+  cloud_functions: ^4.0.6
+  image_picker: ^0.8.7+4
+  firebase_storage: ^11.1.0
+
+
+
+
+dependency_overrides:
+  firebase_auth_web: ^5.9.1
+  firebase_auth: ^4.5.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^2.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/
+
+    - assets/fonts/
+
+    - assets/Images/
+
+    - assets/Images/Login.png
+
+
+  fonts:
+    - family: DreamAvenue
+      fonts:
+        - asset: assets/Fonts/FontsFree-Net-Dream-Avenue.ttf
+
+

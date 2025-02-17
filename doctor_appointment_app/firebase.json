@@ -1,0 +1,47 @@
+{
+  "flutter": {
+    "platforms": {
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "docapp-62a21",
+          "configurations": {
+            "android": "1:37388942593:android:012a322c7585bfd184af00",
+            "ios": "1:37388942593:ios:8daa430dc647acc984af00",
+            "macos": "1:37388942593:ios:8daa430dc647acc984af00",
+            "web": "1:37388942593:web:269a268c64afe66284af00",
+            "windows": "1:37388942593:web:60ffcfc8a9483e9184af00"
+          }
+        }
+      },
+      "android": {
+        "default": {
+          "projectId": "docapp-62a21",
+          "appId": "1:37388942593:android:012a322c7585bfd184af00",
+          "fileOutput": "android/app/google-services.json"
+        }
+      }
+    }
+  },
+  "hosting": {
+    "public": "build/web",
+    "rewrites": [
+      {
+        "source": "/__/auth/**",
+        "destination": "/__/auth/handler"
+      }
+    ]
+  },
+  "functions": [
+    {
+      "source": "functions",
+      "codebase": "default",
+      "ignore": [
+        "node_modules",
+        ".git",
+        "firebase-debug.log",
+        "firebase-debug.*.log",
+        "*.local"
+      ]
+    }
+  ]
+}
