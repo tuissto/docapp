@@ -23,7 +23,6 @@
     }
   },
   "hosting": {
-    "site": "docapp-62a21",
     "public": "build/web",
     "ignore": [
       "firebase.json",
@@ -54,10 +53,6 @@
         "source": "**",
         "destination": "/index.html"
       }
-    ],
-    "run": {
-      "port": 8080
-    },
-    "https": true
+    ]
   }
 }
