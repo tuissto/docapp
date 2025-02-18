@@ -15,6 +15,7 @@ import 'package:doctor_appointment_app/screens/profile_page_pro.dart';
 import 'package:doctor_appointment_app/components/sign_up_form.dart';
 import 'package:doctor_appointment_app/components/sign_up_form_pro.dart';
 import 'package:firebase_core/firebase_core.dart'; // Firebase core package
+import 'package:firebase_auth/firebase_auth.dart'; // Firebase Auth
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'firebase_options.dart'; // Firebase options generated file
@@ -24,13 +25,13 @@ import 'package:doctor_appointment_app/screens/home_page.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Check if a Firebase App is already initialized
-  if (Firebase.apps.isEmpty) {
+  try {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
-  } else {
-    Firebase.app();
+    print("✅ Firebase initialized successfully.");
+  } catch (e) {
+    print("❌ Error initializing Firebase: $e");
   }
 
   runApp(const MyApp());
@@ -45,12 +46,14 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ChangeNotifierProvider<AuthModel>(
-      create: (_) => AuthModel(), // Provide the AuthModel to the app
+      create: (_) => AuthModel(),
       child: MaterialApp(
         navigatorKey: navigatorKey,
         title: 'Doctor Appointment App',
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
+          fontFamily: 'MaterialIcons',
+          textTheme: Typography.material2021().white,
           inputDecorationTheme: const InputDecorationTheme(
             focusColor: Config.primaryColor,
             border: Config.outlinedBorder,
@@ -86,7 +89,7 @@ class MyApp extends StatelessWidget {
           '/password_recovery': (context) => const PasswordRecoveryPage(),
           '/password_recovery_pro': (context) => const PasswordRecoveryPagePro(),
           '/doctor_details': (context) {
-            final args = ModalRoute.of(context)!.settings.arguments as Map<String, dynamic>;
+            final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>? ?? {};
             return DoctorDetails(doctor: args, isFav: args['isFav'] ?? false);
           },
         },

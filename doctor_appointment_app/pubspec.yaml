@@ -29,9 +29,6 @@ dependencies:
   image_picker: ^0.8.7+4
   firebase_storage: ^11.1.0
 
-
-
-
 dependency_overrides:
   firebase_auth_web: ^5.9.1
   firebase_auth: ^4.5.0
@@ -52,10 +49,7 @@ flutter:
 
     - assets/Images/Login.png
 
-
   fonts:
     - family: DreamAvenue
       fonts:
         - asset: assets/Fonts/FontsFree-Net-Dream-Avenue.ttf
-
-
