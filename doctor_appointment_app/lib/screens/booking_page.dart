@@ -18,27 +18,26 @@ class BookingPage extends StatefulWidget {
 }
 
 class _BookingPageState extends State<BookingPage> {
-  // Selected date
   DateTime? _selectedDay;
-  // Selected time string, e.g. "09:00"
   String? _selectedTime;
 
   bool _isLoading = false;
   String? _errorMessage;
 
+  // The doctor data
   Map<String, dynamic>? doctor;
 
-  // List of prestations
+  // If passed from appointment_card, the old appt to cancel
+  String? _oldAppointmentId;
+
+  // Prestations
   List<Map<String, dynamic>> _prestationsList = [];
   Map<String, dynamic>? _selectedPrestation;
 
-  // List of prestataires from the selected prestation
   List<String> _prestataires = [];
   String? _selectedPrestataire;
 
-  // time -> set of which prestataires can do it
   Map<String, Set<String>> _timeToPrestSet = {};
-  // a sorted list of all times from _timeToPrestSet
   List<String> _sortedTimes = [];
 
   @override
@@ -46,9 +45,24 @@ class _BookingPageState extends State<BookingPage> {
     super.didChangeDependencies();
     final route = ModalRoute.of(context);
     if (route != null && route.settings.arguments != null) {
-      doctor = route.settings.arguments as Map<String, dynamic>;
+      // We expect either a direct doctor map,
+      // or a map with { 'doctor': <doctorMap>, 'oldAppointmentId': <id> }
+      final arg = route.settings.arguments as Map<String, dynamic>;
+
+      if (arg.containsKey('doctor')) {
+        // The "new reprogram" style
+        doctor = arg['doctor'] as Map<String, dynamic>;
+        if (arg.containsKey('oldAppointmentId')) {
+          _oldAppointmentId = arg['oldAppointmentId'] as String?;
+        }
+      } else {
+        // The old style, just passing the doc as arguments
+        doctor = arg;
+      }
+
       print('--- BookingPage: doctor data received ---');
       print(doctor);
+
       _extractPrestations();
     } else {
       print('Error: No arguments passed to BookingPage');
@@ -61,10 +75,8 @@ class _BookingPageState extends State<BookingPage> {
 
     final raw = doctor!['prestations'];
     if (raw is Map) {
-      final map = Map<String, dynamic>.from(raw);
       _prestationsList.clear();
-
-      map.forEach((k, v) {
+      raw.forEach((k, v) {
         if (v is Map) {
           final pData = Map<String, dynamic>.from(v);
           _prestationsList.add({
@@ -90,11 +102,11 @@ class _BookingPageState extends State<BookingPage> {
       _selectedTime = null;
       _errorMessage = null;
 
-      // Clear old time data
+      // clear old
       _timeToPrestSet.clear();
       _sortedTimes.clear();
 
-      // Build list of prestataires
+      // build list of prestataires
       final listP = p['prestataires'] as List<String>;
       _prestataires = listP.map((s) => s.trim()).toList();
       if (_prestataires.isNotEmpty) {
@@ -133,7 +145,6 @@ class _BookingPageState extends State<BookingPage> {
       _selectedPrestataire = newVal;
       _selectedTime = null;
       _errorMessage = null;
-
       _timeToPrestSet.clear();
       _sortedTimes.clear();
     });
@@ -142,7 +153,6 @@ class _BookingPageState extends State<BookingPage> {
     }
   }
 
-  /// Fetch availability from "availability" collection
   Future<void> _fetchAvailableTimeSlots() async {
     if (_selectedPrestataire == null || _selectedDay == null || doctor == null) {
       return;
@@ -156,15 +166,13 @@ class _BookingPageState extends State<BookingPage> {
     });
 
     try {
-      // Use the "uid" from the doc
       final docUid = doctor!['uid']?.toString();
       if (docUid == null || docUid.isEmpty) {
-        throw Exception('No valid doctor uid found in the doc.');
+        throw Exception('No valid doctor uid found in the doc');
       }
 
       print('Fetching availability for doc=$docUid, date=$_selectedDay, p=$_selectedPrestataire');
 
-      // Query the "availability" collection
       Query query = FirebaseFirestore.instance
           .collection('availability')
           .where('doctor_id', isEqualTo: docUid);
@@ -172,20 +180,16 @@ class _BookingPageState extends State<BookingPage> {
       if (_selectedPrestataire != 'Any') {
         query = query.where('prestataire_name', isEqualTo: _selectedPrestataire);
       }
-      final snap = await query.get();
 
+      final snap = await query.get();
       if (snap.docs.isEmpty) {
         print('No availability docs found => empty result');
-        setState(() {
-          _isLoading = false;
-        });
+        setState(() => _isLoading = false);
         return;
       }
 
       for (var docSnap in snap.docs) {
-        // FIX: cast docSnap.data() to Map<String,dynamic>
         final data = docSnap.data() as Map<String, dynamic>;
-
         if (data['batches'] is! List) continue;
         final List batches = data['batches'];
         final docPrest = data['prestataire_name'] ?? '???';
@@ -227,9 +231,7 @@ class _BookingPageState extends State<BookingPage> {
       }
 
       final allTimes = _timeToPrestSet.keys.toList();
-      // sort times
       allTimes.sort((a, b) => _compareTimes(_timeOfDayFromString(a), _timeOfDayFromString(b)));
-
       setState(() {
         _sortedTimes = allTimes;
         _isLoading = false;
@@ -244,7 +246,6 @@ class _BookingPageState extends State<BookingPage> {
     }
   }
 
-  /// Convert date -> "monday", etc.
   String _englishDayOfWeek(DateTime d) {
     switch (d.weekday) {
       case DateTime.monday:
@@ -302,7 +303,6 @@ class _BookingPageState extends State<BookingPage> {
     return result;
   }
 
-  /// Book the appointment
   Future<void> _makeAppointment() async {
     if (_selectedTime == null ||
         _selectedPrestataire == null ||
@@ -330,7 +330,6 @@ class _BookingPageState extends State<BookingPage> {
       final dayOfWeek = _englishDayOfWeek(_selectedDay!);
       String chosenPrest = _selectedPrestataire!;
 
-      // If "Any," pick a random available prestataire
       if (chosenPrest == 'Any') {
         final possiblePrests = _timeToPrestSet[timeStr] ?? {};
         if (possiblePrests.isEmpty) {
@@ -347,7 +346,6 @@ class _BookingPageState extends State<BookingPage> {
 
       final auth = Provider.of<AuthModel>(context, listen: false);
 
-      // use 'uid'
       final docUid = doctor!['uid']?.toString();
       if (docUid == null || docUid.isEmpty) {
         throw Exception('No valid doctor uid found in the doc.');
@@ -364,27 +362,23 @@ class _BookingPageState extends State<BookingPage> {
         prestationId: prestationId,
         prestationDuree: duree,
       );
-
       if (!success) {
-        setState(() {
-          _errorMessage = 'Failed to book appointment.';
-        });
+        setState(() => _errorMessage = 'Failed to book appointment.');
         return;
       }
 
-      // Remove that slot from availability
-      final removeOk = await auth.removeSlotsFromAvailability(
-        doctorId: docUid,
-        prestataireName: chosenPrest,
-        dateStr: dateStr,
-        startTimeStr: timeStr,
-        slotsCount: (duree + 29) ~/ 30,
-      );
-      if (!removeOk) {
-        print('Warning: removeSlotsFromAvailability failed for $chosenPrest');
+      // ONLY after new booking is done do we cancel the old
+      if (_oldAppointmentId != null) {
+        final cancelOk = await auth.cancelAppointment(_oldAppointmentId!);
+        if (!cancelOk) {
+          print('Warning: Could not cancel old appointment $_oldAppointmentId');
+        } else {
+          print('Old appointment $_oldAppointmentId canceled successfully.');
+        }
       }
 
       Navigator.pushReplacementNamed(context, 'success_booking');
+
     } catch (e) {
       print('Error booking appointment: $e');
       setState(() {
@@ -428,7 +422,6 @@ class _BookingPageState extends State<BookingPage> {
               _buildSelectedPrestationDetails(),
               _buildDatePicker(),
               if (_prestataires.isNotEmpty) _buildPrestataireDropdown(),
-              // Display times
               if (_sortedTimes.isNotEmpty)
                 _buildTimeSlots()
               else if (_selectedPrestation != null &&

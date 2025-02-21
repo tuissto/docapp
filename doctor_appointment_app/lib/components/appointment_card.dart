@@ -1,6 +1,5 @@
-// lib/components/appointment_card.dart
-
 import 'dart:async';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:doctor_appointment_app/models/auth_model.dart';
 import 'package:doctor_appointment_app/utils/config.dart';
 import 'package:flutter/material.dart';
@@ -102,7 +101,6 @@ class _AppointmentCardState extends State<AppointmentCard> {
 
   /// Picks the first item in `appointment['images']`, else `doctor_profile_url`, else icon
   Widget _buildDoctorAvatar(Map<String, dynamic> appointment) {
-    // 1) Check for 'images'
     final dynamicImages = (appointment['images'] is List)
         ? appointment['images'] as List
         : [];
@@ -119,7 +117,6 @@ class _AppointmentCardState extends State<AppointmentCard> {
       }
     }
 
-    // 2) If we still have nothing, show default icon
     if (avatarUrl.isEmpty) {
       return const CircleAvatar(
         radius: 30,
@@ -128,7 +125,6 @@ class _AppointmentCardState extends State<AppointmentCard> {
       );
     }
 
-    // 3) Otherwise load the URL
     return CircleAvatar(
       radius: 30,
       backgroundColor: Colors.grey,
@@ -136,9 +132,10 @@ class _AppointmentCardState extends State<AppointmentCard> {
     );
   }
 
-  /// Row with Annuler / Reprogrammer buttons
+  /// Row with "Annuler" + "Reprogrammer" buttons
   Widget _buildButtonsRow(Map<String, dynamic> appointment) {
     final auth = Provider.of<AuthModel>(context, listen: false);
+
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
@@ -183,12 +180,14 @@ class _AppointmentCardState extends State<AppointmentCard> {
               if (confirm == true) {
                 final success = await auth.cancelAppointment(appointmentId);
                 if (success) {
+                  if (!mounted) return;
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
                       content: Text('Rendez-vous annulé avec succès.'),
                     ),
                   );
                 } else {
+                  if (!mounted) return;
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
                       content:
@@ -224,56 +223,82 @@ class _AppointmentCardState extends State<AppointmentCard> {
     );
   }
 
-  /// Reprogram the appointment
+  /// Instead of cancelling right away,
+  /// we pass the old appointment ID to BookingPage, so it can cancel only after the new booking is successful.
   Future<void> _handleReprogram(Map<String, dynamic> appointment) async {
-    final now = DateTime.now();
-    // 1) Pick new date
-    final newDate = await showDatePicker(
+    // Confirm user wants to reprogram
+    final doReprogram = await showDialog<bool>(
       context: context,
-      initialDate: now,
-      firstDate: now,
-      lastDate: DateTime(now.year + 1),
-    );
-    if (newDate == null) return;
-
-    // 2) Pick new time
-    final newTimeOfDay = await showTimePicker(
-      context: context,
-      initialTime: const TimeOfDay(hour: 9, minute: 0),
-    );
-    if (newTimeOfDay == null) return;
-
-    final newDateStr = DateFormat('yyyy-MM-dd').format(newDate);
-    final hh = newTimeOfDay.hour.toString().padLeft(2, '0');
-    final mm = newTimeOfDay.minute.toString().padLeft(2, '0');
-    final newTimeStr = '$hh:$mm';
-
-    final auth = Provider.of<AuthModel>(context, listen: false);
-    final success = await auth.reprogramAppointment(
-      appointmentId: appointment['appointment_id'],
-      newDate: newDateStr,
-      newTime: newTimeStr,
-    );
-
-    if (success) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Rendez-vous reprogrammé au $newDateStr à $newTimeStr.',
+      builder: (ctx) => AlertDialog(
+        title: const Text('Reprogrammer'),
+        content: const Text(
+          'Souhaitez-vous reprogrammer ce rendez-vous? '
+              'Vous choisirez un nouvel horaire, et l’ancien sera annulé seulement après la nouvelle réservation.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Non'),
           ),
-        ),
-      );
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Échec du reprogrammation du rendez-vous.'),
-        ),
-      );
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Oui'),
+          ),
+        ],
+      ),
+    );
+
+    if (doReprogram != true) return;
+
+    final doctorId = appointment['doctor_id'] ?? '';
+    if (doctorId.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Impossible de trouver le salon.')),
+        );
+      }
+      return;
+    }
+
+    try {
+      final docSnap = await FirebaseFirestore.instance
+          .collection('doctors')
+          .doc(doctorId)
+          .get();
+      if (!docSnap.exists) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Salon introuvable.')),
+          );
+        }
+        return;
+      }
+
+      // Build data for BookingPage
+      final docData = docSnap.data() ?? {};
+      docData['uid'] = doctorId;
+
+      // Pass the old appointment ID
+      final routeArgs = {
+        'doctor': docData,
+        'oldAppointmentId': appointment['appointment_id'],
+      };
+
+      if (!mounted) return;
+      Navigator.pushNamed(context, 'booking_page', arguments: routeArgs);
+
+    } catch (e) {
+      print('Error in reprogram: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Erreur de reprogrammation.')),
+        );
+      }
     }
   }
 }
 
-/// SCHEDULE CARD (day/date/time + prestation info)
+/// Displays day/date/time + prestation info
 class ScheduleCard extends StatelessWidget {
   const ScheduleCard({
     Key? key,
@@ -301,7 +326,7 @@ class ScheduleCard extends StatelessWidget {
       prestationDuree = pData['duree'] ?? 30;
       prestationPrix = pData['prix'] ?? 'N/A';
     } else {
-      // else top-level
+      // fallback top-level
       prestationName =
           appointment['prestation_nom'] ??
               appointment['prestation_name'] ??
