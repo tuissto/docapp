@@ -1,5 +1,4 @@
 // lib/screens/profile_page_pro.dart
-
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -16,8 +15,7 @@ class ProfileProPage extends StatefulWidget {
 }
 
 class _ProfileProPageState extends State<ProfileProPage> {
-  // File size limit (example: 1 MB)
-  static const int MAX_FILE_SIZE_BYTES = 1 * 1024 * 1024;
+  static const int MAX_FILE_SIZE_BYTES = 1 * 1024 * 1024; // 1MB
 
   int _selectedIndex = 2; // Default to "Profil" tab
 
@@ -35,75 +33,63 @@ class _ProfileProPageState extends State<ProfileProPage> {
   Future<void> _fetchDoctorInfo() async {
     try {
       final uid = FirebaseAuth.instance.currentUser!.uid;
-      final doc = await FirebaseFirestore.instance.collection('doctors').doc(uid).get();
+      final doc = await FirebaseFirestore.instance
+          .collection('doctors')
+          .doc(uid)
+          .get();
       if (doc.exists) {
         setState(() {
           _doctorInfo = doc.data() as Map<String, dynamic>;
 
           // Load prestations
           if (_doctorInfo.containsKey('prestations') &&
-              _doctorInfo['prestations'] != null &&
               _doctorInfo['prestations'] is Map) {
-            final Map<String, dynamic> prestationsMap =
+            final prestationsMap =
             _doctorInfo['prestations'] as Map<String, dynamic>;
             _prestations.clear();
             prestationsMap.forEach((key, value) {
               final prestationData = Map<String, dynamic>.from(value);
-              prestationData['id'] = key; // add the prestation ID
+              prestationData['id'] = key;
               _prestations.add(prestationData);
             });
           }
 
-          // Load images (list of URLs)
+          // Load images
           if (_doctorInfo.containsKey('images') &&
-              _doctorInfo['images'] != null &&
               _doctorInfo['images'] is List) {
             _images.clear();
             _images.addAll(List<String>.from(_doctorInfo['images']));
           }
+
           _isLoading = false;
         });
       } else {
         print('No doctor found for the current user.');
-        setState(() {
-          _isLoading = false;
-        });
+        setState(() => _isLoading = false);
       }
     } catch (e) {
       print('Error fetching doctor info: $e');
-      setState(() {
-        _isLoading = false;
-      });
+      setState(() => _isLoading = false);
     }
   }
 
-  /// Uploads an image and stores the URL in Firestore, up to 3 images max.
-  /// Also checks file size limit before uploading.
   Future<void> _addImage() async {
     if (_images.length >= 3) {
-      print('Already 3 images added.');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Vous ne pouvez ajouter que 3 images.')),
-        );
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Vous ne pouvez ajouter que 3 images.')),
+      );
       return;
     }
 
     final picker = ImagePicker();
-    final XFile? pickedFile = await picker.pickImage(source: ImageSource.gallery);
+    final XFile? pickedFile =
+    await picker.pickImage(source: ImageSource.gallery);
 
     if (pickedFile == null) {
-      print('No image was selected.');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Aucune image sélectionnée.')),
-        );
-      }
+      print('No image selected');
       return;
     }
 
-    // 1) Check file size limit
     int fileSize;
     if (kIsWeb) {
       final bytes = await pickedFile.readAsBytes();
@@ -112,86 +98,61 @@ class _ProfileProPageState extends State<ProfileProPage> {
       fileSize = File(pickedFile.path).lengthSync();
     }
     if (fileSize > MAX_FILE_SIZE_BYTES) {
-      print('File too large: ${fileSize} bytes.');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Le fichier est trop volumineux. Limite = 1MB.')),
-        );
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Le fichier est trop volumineux. 1 MB max.')),
+      );
       return;
     }
 
-    // 2) Proceed with upload
-    print('Image selected: ${pickedFile.path}');
     final uid = FirebaseAuth.instance.currentUser!.uid;
     final filePath = 'doctors/$uid/${DateTime.now().millisecondsSinceEpoch}.jpg';
-    print('Uploading image to: $filePath');
 
     try {
       String imageUrl;
       if (kIsWeb) {
-        // Web: upload bytes
         final bytes = await pickedFile.readAsBytes();
-        final uploadTask = FirebaseStorage.instance.ref(filePath).putData(bytes);
+        final uploadTask =
+        FirebaseStorage.instance.ref(filePath).putData(bytes);
         final snapshot = await uploadTask.whenComplete(() {});
         imageUrl = await snapshot.ref.getDownloadURL();
       } else {
-        // Mobile: upload file
         final file = File(pickedFile.path);
-        final uploadTask = FirebaseStorage.instance.ref(filePath).putFile(file);
+        final uploadTask =
+        FirebaseStorage.instance.ref(filePath).putFile(file);
         final snapshot = await uploadTask.whenComplete(() {});
         imageUrl = await snapshot.ref.getDownloadURL();
       }
-      print('DEBUG: Image URL retrieved: $imageUrl');
 
-      if (imageUrl.isEmpty) {
-        print('ERROR: Received an empty image URL.');
-      } else {
-        await FirebaseFirestore.instance.collection('doctors').doc(uid).update({
+      if (imageUrl.isNotEmpty) {
+        await FirebaseFirestore.instance
+            .collection('doctors')
+            .doc(uid)
+            .update({
           'images': FieldValue.arrayUnion([imageUrl]),
         });
-        if (mounted) {
-          setState(() {
-            _images.add(imageUrl);
-          });
-          print('Image uploaded and URL stored successfully.');
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Image ajoutée avec succès!')),
-          );
-        }
+        setState(() => _images.add(imageUrl));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Image ajoutée avec succès!')),
+        );
       }
     } catch (e) {
       print('Error uploading image: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Échec de l’ajout de l’image.')),
-        );
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Échec de l’ajout de l’image.')),
+      );
     }
   }
 
-  /// Deletes an image from Firestore's 'images' array, and removes from _images in state.
-  /// Optional: If you also want to delete the file from Firebase Storage, see commented code.
   Future<void> _deleteImage(String imageUrl) async {
     try {
       final uid = FirebaseAuth.instance.currentUser!.uid;
-      // 1) remove from Firestore doc
       await FirebaseFirestore.instance.collection('doctors').doc(uid).update({
         'images': FieldValue.arrayRemove([imageUrl]),
       });
-      // 2) remove from local state
-      setState(() {
-        _images.remove(imageUrl);
-      });
-      print('Deleted image from doc: $imageUrl');
+      setState(() => _images.remove(imageUrl));
 
-      // 3) (Optional) also delete from Firebase Storage:
-      // try {
-      //   await FirebaseStorage.instance.refFromURL(imageUrl).delete();
-      //   print('Deleted image file from Storage');
-      // } catch (e) {
-      //   print('Error deleting file from Storage: $e');
-      // }
+      // (Optional) also delete from storage if you want:
+      // await FirebaseStorage.instance.refFromURL(imageUrl).delete();
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Image supprimée.')),
@@ -204,58 +165,74 @@ class _ProfileProPageState extends State<ProfileProPage> {
     }
   }
 
-  /// Adds a new prestataire to Firestore + local state.
   void _addPrestataire() async {
     String? prestataireName;
     await showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Ajouter un prestataire'),
-        content: TextField(
-          decoration: const InputDecoration(labelText: 'Nom du prestataire'),
-          onChanged: (value) => prestataireName = value,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Annuler'),
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Ajouter un prestataire'),
+          content: TextField(
+            decoration:
+            const InputDecoration(labelText: 'Nom du prestataire'),
+            onChanged: (value) => prestataireName = value,
           ),
-          ElevatedButton(
-            onPressed: () async {
-              final trimmedName = prestataireName?.trim();
-              if (trimmedName != null && trimmedName.isNotEmpty) {
-                try {
-                  final uid = FirebaseAuth.instance.currentUser!.uid;
-                  await FirebaseFirestore.instance.collection('doctors').doc(uid).update({
-                    'prestataires': FieldValue.arrayUnion([trimmedName]),
-                    'prestataires_availabilities.$trimmedName': [],
-                  });
-                  setState(() {
-                    if (_doctorInfo['prestataires'] != null && _doctorInfo['prestataires'] is List) {
-                      (_doctorInfo['prestataires'] as List).add(trimmedName);
-                    } else {
-                      _doctorInfo['prestataires'] = [trimmedName];
-                    }
-                  });
-                  Navigator.pop(context);
-                  print('Prestataire "$trimmedName" added.');
-                } catch (e) {
-                  print('Error adding prestataire: $e');
-                  Navigator.pop(context);
-                }
-              }
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color.fromARGB(255, 232, 228, 214),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Annuler'),
             ),
-            child: const Text('Ajouter'),
-          ),
-        ],
-      ),
+            ElevatedButton(
+              onPressed: () async {
+                final trimmedName = prestataireName?.trim();
+                if (trimmedName != null && trimmedName.isNotEmpty) {
+                  final uid = FirebaseAuth.instance.currentUser!.uid;
+                  try {
+                    await FirebaseFirestore.instance
+                        .collection('doctors')
+                        .doc(uid)
+                        .update({
+                      'prestataires': FieldValue.arrayUnion([trimmedName]),
+                      // so you can track each prestataire's "batches"
+                      'prestataires_availabilities.$trimmedName': [],
+                    });
+
+                    setState(() {
+                      if (_doctorInfo['prestataires'] != null &&
+                          _doctorInfo['prestataires'] is List) {
+                        (_doctorInfo['prestataires'] as List).add(trimmedName);
+                      } else {
+                        _doctorInfo['prestataires'] = [trimmedName];
+                      }
+                    });
+
+                    // OPTIONAL: Create an empty doc in `availability` right now
+                    // So the booking page sees an empty doc (and returns no times).
+                    // Without this, a doc won't be created until you add a batch.
+                    await _updateAvailabilityCollection(
+                      trimmedName,
+                      [],
+                    );
+
+                    Navigator.pop(context);
+                    print('Prestataire "$trimmedName" added.');
+                  } catch (e) {
+                    print('Error adding prestataire: $e');
+                    Navigator.pop(context);
+                  }
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color.fromARGB(255, 232, 228, 214),
+              ),
+              child: const Text('Ajouter'),
+            ),
+          ],
+        );
+      },
     );
   }
 
-  // Delete a prestataire from Firestore + local state
   Future<void> _deletePrestataire(String prestataireName) async {
     try {
       final uid = FirebaseAuth.instance.currentUser!.uid;
@@ -264,28 +241,43 @@ class _ProfileProPageState extends State<ProfileProPage> {
         'prestataires_availabilities.$prestataireName': FieldValue.delete(),
       });
       setState(() {
-        if (_doctorInfo['prestataires'] != null && _doctorInfo['prestataires'] is List) {
-          (_doctorInfo['prestataires'] as List).remove(prestataireName);
+        if (_doctorInfo['prestataires'] != null &&
+            _doctorInfo['prestataires'] is List) {
+          (_doctorInfo['prestataires'] as List)
+              .remove(prestataireName);
         }
         if (_doctorInfo['prestataires_availabilities'] != null &&
             _doctorInfo['prestataires_availabilities'] is Map) {
-          (_doctorInfo['prestataires_availabilities'] as Map).remove(prestataireName);
+          (_doctorInfo['prestataires_availabilities'] as Map)
+              .remove(prestataireName);
         }
       });
+
+      // Also remove from "availability" collection
+      final availQuery = await FirebaseFirestore.instance
+          .collection('availability')
+          .where('doctor_id', isEqualTo: uid)
+          .where('prestataire_name', isEqualTo: prestataireName)
+          .get();
+      for (var doc in availQuery.docs) {
+        await doc.reference.delete();
+      }
+
       print('Prestataire $prestataireName deleted.');
     } catch (e) {
       print('Error deleting prestataire: $e');
     }
   }
 
-  // Manage availabilities for a prestataire (reduced: no default intervals, only custom)
   Future<void> _manageBatchAvailabilities(String prestataireName) async {
     List<dynamic> batches = [];
     if (_doctorInfo['prestataires_availabilities'] != null &&
         _doctorInfo['prestataires_availabilities'] is Map) {
       batches = List<dynamic>.from(
-          _doctorInfo['prestataires_availabilities'][prestataireName] ?? []);
+        _doctorInfo['prestataires_availabilities'][prestataireName] ?? [],
+      );
     }
+
     await showDialog(
       context: context,
       builder: (context) => StatefulBuilder(
@@ -308,25 +300,31 @@ class _ProfileProPageState extends State<ProfileProPage> {
                           child: ListTile(
                             title: Text(batchName),
                             subtitle: Text(
-                                'Du $startDate au $endDate\nJours: ${daySchedules.keys.join(', ')}'),
+                              'Du $startDate au $endDate\n'
+                                  'Jours: ${daySchedules.keys.join(', ')}',
+                            ),
                             trailing: IconButton(
-                              icon: const Icon(Icons.delete, color: Colors.red),
-                              onPressed: () {
+                              icon:
+                              const Icon(Icons.delete, color: Colors.red),
+                              onPressed: () async {
                                 dialogSetState(() {
                                   batches.remove(batch);
                                 });
-                                final uid = FirebaseAuth.instance.currentUser!.uid;
-                                FirebaseFirestore.instance
+                                final uid = FirebaseAuth
+                                    .instance.currentUser!.uid;
+                                await FirebaseFirestore.instance
                                     .collection('doctors')
                                     .doc(uid)
                                     .update({
-                                  'prestataires_availabilities.$prestataireName': batches,
+                                  'prestataires_availabilities.$prestataireName':
+                                  batches,
                                 });
-                                _updateAvailabilityCollection(
+                                await _updateAvailabilityCollection(
                                     prestataireName, batches);
                                 setState(() {
                                   (_doctorInfo['prestataires_availabilities']
-                                  as Map)[prestataireName] = batches;
+                                  as Map)[prestataireName] =
+                                      batches;
                                 });
                                 print('Batch removed for $prestataireName');
                               },
@@ -340,7 +338,7 @@ class _ProfileProPageState extends State<ProfileProPage> {
                   const SizedBox(height: 10),
                   ElevatedButton(
                     onPressed: () async {
-                      // Open the new batch availability dialog (no presets).
+                      // Open custom date/time intervals
                       var newBatch = await showDialog<Map<String, dynamic>>(
                         context: context,
                         builder: (context) => CustomAvailabilityDialog(
@@ -351,7 +349,8 @@ class _ProfileProPageState extends State<ProfileProPage> {
                         dialogSetState(() {
                           batches.add(newBatch);
                         });
-                        final uid = FirebaseAuth.instance.currentUser!.uid;
+                        final uid =
+                            FirebaseAuth.instance.currentUser!.uid;
                         await FirebaseFirestore.instance
                             .collection('doctors')
                             .doc(uid)
@@ -366,14 +365,17 @@ class _ProfileProPageState extends State<ProfileProPage> {
                             _doctorInfo['prestataires_availabilities'] = {};
                           }
                           (_doctorInfo['prestataires_availabilities']
-                          as Map)[prestataireName] = batches;
+                          as Map)[prestataireName] =
+                              batches;
                         });
                         await _updateAvailabilityCollection(
                             prestataireName, batches);
                         print('New batch added for $prestataireName');
                       }
                     },
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.black),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.black,
+                    ),
                     child: const Text(
                       'Ajouter une plage horaire',
                       style: TextStyle(color: Colors.white),
@@ -394,9 +396,11 @@ class _ProfileProPageState extends State<ProfileProPage> {
     );
   }
 
-  /// Updates (or creates) a document in the "availability" collection.
+  /// Creates/updates the doc in "availability"
   Future<void> _updateAvailabilityCollection(
-      String prestataireName, List<dynamic> batches) async {
+      String prestataireName,
+      List<dynamic> batches,
+      ) async {
     final uid = FirebaseAuth.instance.currentUser!.uid;
     final availQuery = await FirebaseFirestore.instance
         .collection('availability')
@@ -418,7 +422,6 @@ class _ProfileProPageState extends State<ProfileProPage> {
     }
   }
 
-  // Add a new Prestation
   void _addPrestation() async {
     String? name, description, duration, price;
     List<String> selectedPrestataires = [];
@@ -431,25 +434,24 @@ class _ProfileProPageState extends State<ProfileProPage> {
           if (_doctorInfo['prestataires'] != null &&
               _doctorInfo['prestataires'] is List &&
               (_doctorInfo['prestataires'] as List).isNotEmpty) {
-            prestataireWidgets =
-                (_doctorInfo['prestataires'] as List<dynamic>).map<Widget>((pName) {
-                  return CheckboxListTile(
-                    title: Text(pName),
-                    value: selectedPrestataires.contains(pName),
-                    onChanged: (bool? value) {
-                      dialogSetState(() {
-                        if (value == true) {
-                          selectedPrestataires.add(pName);
-                        } else {
-                          selectedPrestataires.remove(pName);
-                        }
-                      });
-                    },
-                  );
-                }).toList();
+            prestataireWidgets = (_doctorInfo['prestataires'] as List).map<Widget>((pName) {
+              return CheckboxListTile(
+                title: Text(pName),
+                value: selectedPrestataires.contains(pName),
+                onChanged: (val) {
+                  dialogSetState(() {
+                    if (val == true) {
+                      selectedPrestataires.add(pName);
+                    } else {
+                      selectedPrestataires.remove(pName);
+                    }
+                  });
+                },
+              );
+            }).toList();
           } else {
             prestataireWidgets = [
-              const Text('Aucun prestataire disponible pour sélection'),
+              const Text('Aucun prestataire disponible.'),
             ];
           }
 
@@ -457,27 +459,24 @@ class _ProfileProPageState extends State<ProfileProPage> {
             title: const Text('Ajouter une prestation'),
             content: SingleChildScrollView(
               child: Column(
-                mainAxisSize: MainAxisSize.min,
                 children: [
                   TextField(
                     decoration: const InputDecoration(labelText: 'Nom'),
-                    onChanged: (value) => name = value,
+                    onChanged: (val) => name = val,
                   ),
                   TextField(
                     decoration: const InputDecoration(labelText: 'Description'),
-                    onChanged: (value) => description = value,
+                    onChanged: (val) => description = val,
                   ),
                   TextField(
-                    decoration: const InputDecoration(
-                      labelText: 'Durée estimée (min)',
-                    ),
+                    decoration: const InputDecoration(labelText: 'Durée (min)'),
                     keyboardType: TextInputType.number,
-                    onChanged: (value) => duration = value,
+                    onChanged: (val) => duration = val,
                   ),
                   TextField(
                     decoration: const InputDecoration(labelText: 'Prix (EUR)'),
                     keyboardType: TextInputType.number,
-                    onChanged: (value) => price = value,
+                    onChanged: (val) => price = val,
                   ),
                   const SizedBox(height: 10),
                   const Text('Sélectionnez les prestataires:'),
@@ -497,19 +496,17 @@ class _ProfileProPageState extends State<ProfileProPage> {
                       duration != null &&
                       price != null &&
                       selectedPrestataires.isNotEmpty) {
+                    final uid = FirebaseAuth.instance.currentUser!.uid;
+                    final prestationId =
+                    DateTime.now().millisecondsSinceEpoch.toString();
+                    final newPrestation = {
+                      'nom': name!.trim(),
+                      'description': description!.trim(),
+                      'duree': duration!.trim(),
+                      'prix': price!.trim(),
+                      'prestataires': selectedPrestataires,
+                    };
                     try {
-                      final uid = FirebaseAuth.instance.currentUser!.uid;
-                      final prestationId =
-                      DateTime.now().millisecondsSinceEpoch.toString();
-
-                      final newPrestation = {
-                        'nom': name!.trim(),
-                        'description': description!.trim(),
-                        'duree': duration!.trim(),
-                        'prix': price!.trim(),
-                        'prestataires': selectedPrestataires,
-                      };
-
                       await FirebaseFirestore.instance
                           .collection('doctors')
                           .doc(uid)
@@ -525,13 +522,12 @@ class _ProfileProPageState extends State<ProfileProPage> {
                               newPrestation;
                         } else {
                           _doctorInfo['prestations'] = {
-                            prestationId: newPrestation
+                            prestationId: newPrestation,
                           };
                         }
                         newPrestation['id'] = prestationId;
                         _prestations.add(newPrestation);
                       });
-
                       Navigator.pop(context);
                     } catch (e) {
                       print('Error adding prestation: $e');
@@ -559,7 +555,6 @@ class _ProfileProPageState extends State<ProfileProPage> {
     );
   }
 
-  // Edit existing prestation
   void _editPrestation(Map<String, dynamic> prestation) async {
     final prestationId = prestation['id'];
     String name = prestation['nom'] ?? '';
@@ -567,7 +562,7 @@ class _ProfileProPageState extends State<ProfileProPage> {
     String duration = prestation['duree'] ?? '';
     String price = prestation['prix'] ?? '';
     List<String> selectedPrestataires =
-    prestation['prestataires'] != null && prestation['prestataires'] is List
+    prestation['prestataires'] is List
         ? List<String>.from(prestation['prestataires'])
         : [];
 
@@ -576,17 +571,16 @@ class _ProfileProPageState extends State<ProfileProPage> {
       builder: (context) => StatefulBuilder(
         builder: (context, dialogSetState) {
           List<Widget> prestataireWidgets = [];
-          if (_doctorInfo['prestataires'] != null &&
-              _doctorInfo['prestataires'] is List &&
+          if (_doctorInfo['prestataires'] is List &&
               (_doctorInfo['prestataires'] as List).isNotEmpty) {
             prestataireWidgets =
-                (_doctorInfo['prestataires'] as List<dynamic>).map<Widget>((pName) {
+                (_doctorInfo['prestataires'] as List).map<Widget>((pName) {
                   return CheckboxListTile(
                     title: Text(pName),
                     value: selectedPrestataires.contains(pName),
-                    onChanged: (bool? value) {
+                    onChanged: (val) {
                       dialogSetState(() {
-                        if (value == true) {
+                        if (val == true) {
                           selectedPrestataires.add(pName);
                         } else {
                           selectedPrestataires.remove(pName);
@@ -597,7 +591,7 @@ class _ProfileProPageState extends State<ProfileProPage> {
                 }).toList();
           } else {
             prestataireWidgets = [
-              const Text('Aucun prestataire disponible pour sélection'),
+              const Text('Aucun prestataire disponible.'),
             ];
           }
 
@@ -605,30 +599,28 @@ class _ProfileProPageState extends State<ProfileProPage> {
             title: const Text('Modifier la prestation'),
             content: SingleChildScrollView(
               child: Column(
-                mainAxisSize: MainAxisSize.min,
                 children: [
                   TextField(
                     decoration: const InputDecoration(labelText: 'Nom'),
                     controller: TextEditingController(text: name),
-                    onChanged: (value) => name = value,
+                    onChanged: (val) => name = val,
                   ),
                   TextField(
-                    decoration:
-                    const InputDecoration(labelText: 'Description'),
+                    decoration: const InputDecoration(labelText: 'Description'),
                     controller: TextEditingController(text: description),
-                    onChanged: (value) => description = value,
+                    onChanged: (val) => description = val,
                   ),
                   TextField(
                     decoration: const InputDecoration(labelText: 'Durée (min)'),
-                    keyboardType: TextInputType.number,
                     controller: TextEditingController(text: duration),
-                    onChanged: (value) => duration = value,
+                    keyboardType: TextInputType.number,
+                    onChanged: (val) => duration = val,
                   ),
                   TextField(
                     decoration: const InputDecoration(labelText: 'Prix (EUR)'),
-                    keyboardType: TextInputType.number,
                     controller: TextEditingController(text: price),
-                    onChanged: (value) => price = value,
+                    keyboardType: TextInputType.number,
+                    onChanged: (val) => price = val,
                   ),
                   const SizedBox(height: 10),
                   const Text('Sélectionnez les prestataires:'),
@@ -648,38 +640,34 @@ class _ProfileProPageState extends State<ProfileProPage> {
                       duration.isNotEmpty &&
                       price.isNotEmpty &&
                       selectedPrestataires.isNotEmpty) {
+                    final uid = FirebaseAuth.instance.currentUser!.uid;
+                    final updatedPrestation = {
+                      'nom': name.trim(),
+                      'description': description.trim(),
+                      'duree': duration.trim(),
+                      'prix': price.trim(),
+                      'prestataires': selectedPrestataires,
+                    };
                     try {
-                      final uid = FirebaseAuth.instance.currentUser!.uid;
-                      final updatedPrestation = {
-                        'nom': name.trim(),
-                        'description': description.trim(),
-                        'duree': duration.trim(),
-                        'prix': price.trim(),
-                        'prestataires': selectedPrestataires,
-                      };
-
                       await FirebaseFirestore.instance
                           .collection('doctors')
                           .doc(uid)
                           .update({
                         'prestations.$prestationId': updatedPrestation,
                       });
-
                       setState(() {
-                        final idx =
-                        _prestations.indexWhere((p) => p['id'] == prestationId);
+                        final idx = _prestations.indexWhere(
+                                (p) => p['id'] == prestationId);
                         if (idx != -1) {
                           updatedPrestation['id'] = prestationId;
                           _prestations[idx] = updatedPrestation;
                         }
-                        if (_doctorInfo['prestations'] != null &&
-                            _doctorInfo['prestations'] is Map) {
+                        if (_doctorInfo['prestations'] is Map) {
                           (_doctorInfo['prestations']
                           as Map<String, dynamic>)[prestationId] =
                               updatedPrestation;
                         }
                       });
-
                       Navigator.pop(context);
                     } catch (e) {
                       print('Error editing prestation: $e');
@@ -689,8 +677,7 @@ class _ProfileProPageState extends State<ProfileProPage> {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
                         content: Text(
-                          'Veuillez remplir tous les champs et sélectionner au moins un prestataire.',
-                        ),
+                            'Veuillez remplir tous les champs et sélectionner au moins un prestataire.'),
                       ),
                     );
                   }
@@ -707,7 +694,6 @@ class _ProfileProPageState extends State<ProfileProPage> {
     );
   }
 
-  /// Delete a prestation
   void _deletePrestation(String prestationId) async {
     try {
       final uid = FirebaseAuth.instance.currentUser!.uid;
@@ -715,9 +701,8 @@ class _ProfileProPageState extends State<ProfileProPage> {
         'prestations.$prestationId': FieldValue.delete(),
       });
       setState(() {
-        _prestations.removeWhere((prestation) => prestation['id'] == prestationId);
-        if (_doctorInfo['prestations'] != null &&
-            _doctorInfo['prestations'] is Map) {
+        _prestations.removeWhere((p) => p['id'] == prestationId);
+        if (_doctorInfo['prestations'] is Map) {
           (_doctorInfo['prestations'] as Map<String, dynamic>)
               .remove(prestationId);
         }
@@ -728,7 +713,6 @@ class _ProfileProPageState extends State<ProfileProPage> {
     }
   }
 
-  /// Edit a field in Firestore (name, phone, email, etc.)
   Future<void> _editField(String field, String currentValue) async {
     final controller = TextEditingController(text: currentValue);
     await showDialog(
@@ -773,55 +757,22 @@ class _ProfileProPageState extends State<ProfileProPage> {
 
   @override
   Widget build(BuildContext context) {
-    // Build Prestataire Buttons
-    List<Widget> prestataireWidgets = [];
-    if (_doctorInfo['prestataires'] != null &&
-        _doctorInfo['prestataires'] is List &&
-        (_doctorInfo['prestataires'] as List).isNotEmpty) {
-      prestataireWidgets =
-          (_doctorInfo['prestataires'] as List<dynamic>).map<Widget>((pName) {
-            return Container(
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  ElevatedButton(
-                    onPressed: () => _manageBatchAvailabilities(pName),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color.fromARGB(255, 232, 228, 214),
-                    ),
-                    child: Text(pName),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.delete, color: Colors.red),
-                    onPressed: () => _deletePrestataire(pName),
-                    tooltip: 'Supprimer $pName',
-                  ),
-                ],
-              ),
-            );
-          }).toList();
-    } else {
-      prestataireWidgets = [const Text('Aucun prestataire ajouté')];
-    }
-
     return Scaffold(
       backgroundColor: const Color.fromARGB(255, 232, 228, 214),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
         child: Padding(
-          padding: const EdgeInsets.all(16.0),
+          padding:
+          const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Top Title
+              // Title
               Container(
                 padding: const EdgeInsets.symmetric(
                     vertical: 20, horizontal: 16),
-                decoration: const BoxDecoration(
-                  color: Color.fromARGB(255, 232, 228, 214),
-                ),
+                color: const Color.fromARGB(255, 232, 228, 214),
                 child: Center(
                   child: RichText(
                     text: const TextSpan(
@@ -848,7 +799,7 @@ class _ProfileProPageState extends State<ProfileProPage> {
               ),
               const SizedBox(height: 20),
 
-              // Images with delete icon
+              // Image row
               SizedBox(
                 height: 110,
                 child: SingleChildScrollView(
@@ -863,14 +814,12 @@ class _ProfileProPageState extends State<ProfileProPage> {
                               SizedBox(
                                 width: 100,
                                 height: 100,
-                                child: url.isNotEmpty
-                                    ? (url.startsWith('http')
+                                child: url.startsWith('http')
                                     ? Image.network(
                                   url,
                                   fit: BoxFit.cover,
                                   errorBuilder:
-                                      (context, error, stackTrace) {
-                                    print("Error loading image: $error");
+                                      (ctx, error, stack) {
                                     return Container(
                                       color: Colors.grey,
                                       child: const Center(
@@ -880,14 +829,8 @@ class _ProfileProPageState extends State<ProfileProPage> {
                                   },
                                 )
                                     : Image.file(File(url),
-                                    fit: BoxFit.cover))
-                                    : Container(
-                                  color: Colors.grey,
-                                  child: const Center(
-                                      child: Text("No image")),
-                                ),
+                                    fit: BoxFit.cover),
                               ),
-                              // Delete icon overlay
                               Positioned(
                                 top: 0,
                                 right: 0,
@@ -932,11 +875,14 @@ class _ProfileProPageState extends State<ProfileProPage> {
                   IconButton(
                     icon: const Icon(Icons.edit),
                     onPressed: () => _editField(
-                        'doctor_name', _doctorInfo['doctor_name'] ?? ''),
+                      'doctor_name',
+                      _doctorInfo['doctor_name'] ?? '',
+                    ),
                   ),
                 ],
               ),
               const SizedBox(height: 10),
+
               // Address
               Row(
                 children: [
@@ -950,37 +896,40 @@ class _ProfileProPageState extends State<ProfileProPage> {
                 ],
               ),
               const SizedBox(height: 10),
+
               // Phone
               Row(
                 children: [
                   Expanded(
                     child: Text(
                       _doctorInfo['phone'] ?? 'Téléphone non défini',
-                      style:
-                      const TextStyle(fontSize: 16, color: Colors.grey),
+                      style: const TextStyle(
+                          fontSize: 16, color: Colors.grey),
                     ),
                   ),
                   IconButton(
                     icon: const Icon(Icons.edit),
-                    onPressed: () => _editField(
-                        'phone', _doctorInfo['phone'] ?? ''),
+                    onPressed: () =>
+                        _editField('phone', _doctorInfo['phone'] ?? ''),
                   ),
                 ],
               ),
               const SizedBox(height: 10),
+
               // Email
               Row(
                 children: [
                   Expanded(
                     child: Text(
                       _doctorInfo['email'] ?? 'Email non défini',
-                      style: const TextStyle(fontSize: 16, color: Colors.grey),
+                      style:
+                      const TextStyle(fontSize: 16, color: Colors.grey),
                     ),
                   ),
                   IconButton(
                     icon: const Icon(Icons.edit),
-                    onPressed: () => _editField(
-                        'email', _doctorInfo['email'] ?? ''),
+                    onPressed: () =>
+                        _editField('email', _doctorInfo['email'] ?? ''),
                   ),
                 ],
               ),
@@ -989,8 +938,7 @@ class _ProfileProPageState extends State<ProfileProPage> {
               // Prestations
               const Text(
                 'Prestations',
-                style:
-                TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 10),
               ..._prestations.map((prestation) {
@@ -1007,7 +955,7 @@ class _ProfileProPageState extends State<ProfileProPage> {
                             'Durée estimée: ${prestation['duree'] ?? '??'} min'),
                         Text('Prix: ${prestation['prix'] ?? '??'} EUR'),
                         Text(
-                          'Prestataires: ${prestation['prestataires'] != null && prestation['prestataires'] is List ? (prestation['prestataires'] as List<dynamic>).join(', ') : 'Aucun'}',
+                          'Prestataires: ${prestation['prestataires'] is List ? (prestation['prestataires'] as List).join(', ') : 'Aucun'}',
                         ),
                       ],
                     ),
@@ -1017,10 +965,10 @@ class _ProfileProPageState extends State<ProfileProPage> {
                         ElevatedButton(
                           onPressed: () => _editPrestation(prestation),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor:
-                            const Color.fromARGB(255, 232, 228, 214),
-                            padding:
-                            const EdgeInsets.symmetric(horizontal: 12),
+                            backgroundColor: const Color.fromARGB(
+                                255, 232, 228, 214),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(8),
                             ),
@@ -1029,9 +977,10 @@ class _ProfileProPageState extends State<ProfileProPage> {
                               style: TextStyle(color: Colors.black)),
                         ),
                         IconButton(
+                          icon:
+                          const Icon(Icons.delete, color: Colors.red),
                           onPressed: () =>
                               _deletePrestation(prestation['id']),
-                          icon: const Icon(Icons.delete, color: Colors.red),
                         ),
                       ],
                     ),
@@ -1065,10 +1014,7 @@ class _ProfileProPageState extends State<ProfileProPage> {
                 TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 10),
-              Wrap(
-                spacing: 8.0,
-                children: prestataireWidgets,
-              ),
+              _buildPrestatairesList(),
               const SizedBox(height: 10),
               Center(
                 child: ElevatedButton(
@@ -1111,9 +1057,7 @@ class _ProfileProPageState extends State<ProfileProPage> {
           ),
         ],
         onTap: (index) {
-          setState(() {
-            _selectedIndex = index;
-          });
+          setState(() => _selectedIndex = index);
           switch (index) {
             case 0:
               Navigator.pushNamed(context, '/home_pro');
@@ -1129,12 +1073,42 @@ class _ProfileProPageState extends State<ProfileProPage> {
       ),
     );
   }
+
+  Widget _buildPrestatairesList() {
+    if (_doctorInfo['prestataires'] is List &&
+        (_doctorInfo['prestataires'] as List).isNotEmpty) {
+      return Wrap(
+        spacing: 8.0,
+        children: (_doctorInfo['prestataires'] as List).map<Widget>((pName) {
+          return Container(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ElevatedButton(
+                  onPressed: () => _manageBatchAvailabilities(pName),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color.fromARGB(255, 232, 228, 214),
+                  ),
+                  child: Text(pName),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.delete, color: Colors.red),
+                  onPressed: () => _deletePrestataire(pName),
+                  tooltip: 'Supprimer $pName',
+                ),
+              ],
+            ),
+          );
+        }).toList(),
+      );
+    } else {
+      return const Text('Aucun prestataire ajouté');
+    }
+  }
 }
 
-///
-/// A custom dialog that only allows adding custom intervals ("plage horaire"),
-/// removing the old presets entirely.
-///
+/// A custom dialog for adding a new "batch" with a date range + daily intervals.
 class CustomAvailabilityDialog extends StatefulWidget {
   final String prestataireName;
   const CustomAvailabilityDialog({Key? key, required this.prestataireName})
@@ -1148,6 +1122,7 @@ class CustomAvailabilityDialog extends StatefulWidget {
 class _CustomAvailabilityDialogState extends State<CustomAvailabilityDialog> {
   DateTime? _startDate;
   DateTime? _endDate;
+
   final List<String> _daysShort = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
   final Map<String, String> _dayMapping = {
     'Lun': 'monday',
@@ -1159,20 +1134,18 @@ class _CustomAvailabilityDialogState extends State<CustomAvailabilityDialog> {
     'Dim': 'sunday',
   };
   Set<String> _selectedDays = {};
-
-  // Only custom intervals
   List<Map<String, TimeOfDay>> _intervals = [];
 
-  String _formatDate(DateTime date) =>
-      '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
-  String _formatTime(TimeOfDay time) =>
-      '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
+  String _formatDate(DateTime d) =>
+      '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+  String _formatTime(TimeOfDay t) =>
+      '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
 
   Future<void> _pickStartDate() async {
-    DateTime initial = _startDate ?? DateTime.now();
-    DateTime? picked = await showDatePicker(
+    final init = _startDate ?? DateTime.now();
+    final picked = await showDatePicker(
       context: context,
-      initialDate: initial,
+      initialDate: init,
       firstDate: DateTime.now().subtract(const Duration(days: 365)),
       lastDate: DateTime.now().add(const Duration(days: 365 * 2)),
     );
@@ -1187,28 +1160,25 @@ class _CustomAvailabilityDialogState extends State<CustomAvailabilityDialog> {
   }
 
   Future<void> _pickEndDate() async {
-    DateTime initial = _endDate ?? (_startDate ?? DateTime.now());
-    DateTime? picked = await showDatePicker(
+    final init = _endDate ?? (_startDate ?? DateTime.now());
+    final picked = await showDatePicker(
       context: context,
-      initialDate: initial,
+      initialDate: init,
       firstDate: _startDate ?? DateTime.now(),
       lastDate: DateTime.now().add(const Duration(days: 365 * 2)),
     );
     if (picked != null) {
-      setState(() {
-        _endDate = picked;
-      });
+      setState(() => _endDate = picked);
     }
   }
 
-  // Adds a custom interval using 24‑hour format only
   Future<void> _addCustomInterval() async {
     TimeOfDay? start = await showTimePicker(
       context: context,
       initialTime: const TimeOfDay(hour: 9, minute: 0),
-      builder: (context, child) {
+      builder: (ctx, child) {
         return MediaQuery(
-          data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: true),
+          data: MediaQuery.of(ctx).copyWith(alwaysUse24HourFormat: true),
           child: child!,
         );
       },
@@ -1218,9 +1188,9 @@ class _CustomAvailabilityDialogState extends State<CustomAvailabilityDialog> {
     TimeOfDay? end = await showTimePicker(
       context: context,
       initialTime: const TimeOfDay(hour: 17, minute: 0),
-      builder: (context, child) {
+      builder: (ctx, child) {
         return MediaQuery(
-          data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: true),
+          data: MediaQuery.of(ctx).copyWith(alwaysUse24HourFormat: true),
           child: child!,
         );
       },
@@ -1232,15 +1202,14 @@ class _CustomAvailabilityDialogState extends State<CustomAvailabilityDialog> {
     });
   }
 
-  // Allows editing an existing interval
   Future<void> _editInterval(int index) async {
-    Map<String, TimeOfDay> interval = _intervals[index];
+    final interval = _intervals[index];
     TimeOfDay? newStart = await showTimePicker(
       context: context,
       initialTime: interval['start']!,
-      builder: (context, child) {
+      builder: (ctx, child) {
         return MediaQuery(
-          data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: true),
+          data: MediaQuery.of(ctx).copyWith(alwaysUse24HourFormat: true),
           child: child!,
         );
       },
@@ -1250,9 +1219,9 @@ class _CustomAvailabilityDialogState extends State<CustomAvailabilityDialog> {
     TimeOfDay? newEnd = await showTimePicker(
       context: context,
       initialTime: interval['end']!,
-      builder: (context, child) {
+      builder: (ctx, child) {
         return MediaQuery(
-          data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: true),
+          data: MediaQuery.of(ctx).copyWith(alwaysUse24HourFormat: true),
           child: child!,
         );
       },
@@ -1297,21 +1266,21 @@ class _CustomAvailabilityDialogState extends State<CustomAvailabilityDialog> {
             ),
             const SizedBox(height: 10),
 
-            // Day-of-week selection
+            // Days of week
             const Text('Jours à appliquer :',
                 style: TextStyle(fontWeight: FontWeight.bold)),
             Wrap(
               spacing: 8.0,
-              children: _daysShort.map((day) {
+              children: _daysShort.map((dayShort) {
                 return ChoiceChip(
-                  label: Text(day),
-                  selected: _selectedDays.contains(day),
+                  label: Text(dayShort),
+                  selected: _selectedDays.contains(dayShort),
                   onSelected: (selected) {
                     setState(() {
                       if (selected) {
-                        _selectedDays.add(day);
+                        _selectedDays.add(dayShort);
                       } else {
-                        _selectedDays.remove(day);
+                        _selectedDays.remove(dayShort);
                       }
                     });
                   },
@@ -1326,25 +1295,26 @@ class _CustomAvailabilityDialogState extends State<CustomAvailabilityDialog> {
             if (_intervals.isNotEmpty)
               Column(
                 children: _intervals.asMap().entries.map((entry) {
-                  int index = entry.key;
+                  final i = entry.key;
                   final interval = entry.value;
                   return ListTile(
                     title: Text(
-                        '${_formatTime(interval['start']!)} - ${_formatTime(interval['end']!)}'),
+                      '${_formatTime(interval['start']!)} - '
+                          '${_formatTime(interval['end']!)}',
+                    ),
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         IconButton(
                           icon: const Icon(Icons.edit, size: 18),
-                          onPressed: () => _editInterval(index),
+                          onPressed: () => _editInterval(i),
                         ),
                         IconButton(
-                          icon: const Icon(Icons.delete, size: 18, color: Colors.red),
-                          onPressed: () {
-                            setState(() {
-                              _intervals.removeAt(index);
-                            });
-                          },
+                          icon:
+                          const Icon(Icons.delete, size: 18, color: Colors.red),
+                          onPressed: () => setState(() {
+                            _intervals.removeAt(i);
+                          }),
                         ),
                       ],
                     ),
@@ -1355,15 +1325,12 @@ class _CustomAvailabilityDialogState extends State<CustomAvailabilityDialog> {
               const Text('Aucun horaire ajouté.'),
             const SizedBox(height: 8),
 
-            // Button to add custom interval
             ElevatedButton(
               style: ElevatedButton.styleFrom(backgroundColor: Colors.grey[600]),
               onPressed: _addCustomInterval,
               child: const Text('Ajouter plage horaire'),
             ),
-
             const SizedBox(height: 16),
-            // If date range is selected, show summary
             if (_startDate != null && _endDate != null)
               Text(
                 'Période: ${_formatDate(_startDate!)} à ${_formatDate(_endDate!)}',
@@ -1385,16 +1352,16 @@ class _CustomAvailabilityDialogState extends State<CustomAvailabilityDialog> {
                 _intervals.isEmpty) {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
-                  content: Text(
-                      'Veuillez remplir tous les champs et ajouter au moins un horaire'),
+                  content: Text('Remplissez tous les champs & horaires'),
                 ),
               );
               return;
             }
-            // Build the day_schedules
+
+            // day_schedules
             Map<String, dynamic> daySchedules = {};
-            for (var dayShort in _selectedDays) {
-              String dayKey = _dayMapping[dayShort]!;
+            for (var short in _selectedDays) {
+              final dayKey = _dayMapping[short]!;
               daySchedules[dayKey] = _intervals.map((interval) {
                 return {
                   'start_time': _formatTime(interval['start']!),
@@ -1402,6 +1369,7 @@ class _CustomAvailabilityDialogState extends State<CustomAvailabilityDialog> {
                 };
               }).toList();
             }
+
             final batchId = DateTime.now().millisecondsSinceEpoch.toString();
             final newBatch = {
               'batch_id': batchId,
@@ -1413,7 +1381,7 @@ class _CustomAvailabilityDialogState extends State<CustomAvailabilityDialog> {
               'doctor_id': FirebaseAuth.instance.currentUser!.uid,
               'prestataire_name': widget.prestataireName,
             };
-            print('Batch saved: $newBatch');
+
             Navigator.pop(context, newBatch);
           },
           child: const Text('Enregistrer'),

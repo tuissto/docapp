@@ -1,5 +1,3 @@
-// lib/screens/booking_page.dart
-
 import 'dart:math'; // for random picking
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:doctor_appointment_app/components/button.dart';
@@ -68,7 +66,7 @@ class _BookingPageState extends State<BookingPage> {
 
       map.forEach((k, v) {
         if (v is Map) {
-          final pData = Map<String,dynamic>.from(v);
+          final pData = Map<String, dynamic>.from(v);
           _prestationsList.add({
             'id': k,
             'nom': pData['nom'] ?? '',
@@ -85,20 +83,20 @@ class _BookingPageState extends State<BookingPage> {
     }
   }
 
-  void _onPrestationSelected(Map<String,dynamic> p) {
+  void _onPrestationSelected(Map<String, dynamic> p) {
     setState(() {
       _selectedPrestation = p;
       _selectedPrestataire = null;
       _selectedTime = null;
       _errorMessage = null;
 
-      // time map
+      // Clear old time data
       _timeToPrestSet.clear();
       _sortedTimes.clear();
 
       // Build list of prestataires
       final listP = p['prestataires'] as List<String>;
-      _prestataires = [...listP.map((s)=>s.trim())];
+      _prestataires = listP.map((s) => s.trim()).toList();
       if (_prestataires.isNotEmpty) {
         _prestataires.insert(0, 'Any');
       }
@@ -113,7 +111,7 @@ class _BookingPageState extends State<BookingPage> {
       context: context,
       initialDate: init,
       firstDate: now,
-      lastDate: DateTime(now.year+1),
+      lastDate: DateTime(now.year + 1),
     );
     if (newDate == null) return;
 
@@ -144,7 +142,7 @@ class _BookingPageState extends State<BookingPage> {
     }
   }
 
-  /// Fetch availability
+  /// Fetch availability from "availability" collection
   Future<void> _fetchAvailableTimeSlots() async {
     if (_selectedPrestataire == null || _selectedDay == null || doctor == null) {
       return;
@@ -158,18 +156,24 @@ class _BookingPageState extends State<BookingPage> {
     });
 
     try {
-      final doctorId = doctor!['doc_id'];
-      print('Fetching availability for doc=$doctorId, date=$_selectedDay, p=$_selectedPrestataire');
+      // Use the "uid" from the doc
+      final docUid = doctor!['uid']?.toString();
+      if (docUid == null || docUid.isEmpty) {
+        throw Exception('No valid doctor uid found in the doc.');
+      }
 
+      print('Fetching availability for doc=$docUid, date=$_selectedDay, p=$_selectedPrestataire');
+
+      // Query the "availability" collection
       Query query = FirebaseFirestore.instance
           .collection('availability')
-          .where('doctor_id', isEqualTo: doctorId);
+          .where('doctor_id', isEqualTo: docUid);
 
-      // If user chose a specific one, filter
       if (_selectedPrestataire != 'Any') {
         query = query.where('prestataire_name', isEqualTo: _selectedPrestataire);
       }
       final snap = await query.get();
+
       if (snap.docs.isEmpty) {
         print('No availability docs found => empty result');
         setState(() {
@@ -178,18 +182,19 @@ class _BookingPageState extends State<BookingPage> {
         return;
       }
 
-      // Build a map time->set<prest>
-      for (var doc in snap.docs) {
-        final data = doc.data() as Map<String,dynamic>;
+      for (var docSnap in snap.docs) {
+        // FIX: cast docSnap.data() to Map<String,dynamic>
+        final data = docSnap.data() as Map<String, dynamic>;
+
         if (data['batches'] is! List) continue;
         final List batches = data['batches'];
-        final docPrest = data['prestataire_name']??'???';
+        final docPrest = data['prestataire_name'] ?? '???';
 
         for (var batch in batches) {
           if (batch is Map) {
-            final startDateStr = batch['start_date']??'';
-            final endDateStr = batch['end_date']??'';
-            final daySchedules = batch['day_schedules']??{};
+            final startDateStr = batch['start_date'] ?? '';
+            final endDateStr = batch['end_date'] ?? '';
+            final daySchedules = batch['day_schedules'] ?? {};
             final startD = DateTime.tryParse(startDateStr);
             final endD = DateTime.tryParse(endDateStr);
             if (startD == null || endD == null) continue;
@@ -201,14 +206,13 @@ class _BookingPageState extends State<BookingPage> {
                 if (intervals is List) {
                   for (var slot in intervals) {
                     if (slot is Map) {
-                      final st = slot['start_time']??'';
-                      final et = slot['end_time']??'';
+                      final st = slot['start_time'] ?? '';
+                      final et = slot['end_time'] ?? '';
                       final stTOD = _parseTimeOfDay(st);
                       final etTOD = _parseTimeOfDay(et);
                       if (stTOD != null && etTOD != null) {
                         final subSlots = _generate30MinSlots(stTOD, etTOD);
                         for (var sub in subSlots) {
-                          // Insert docPrest into _timeToPrestSet[sub]
                           _timeToPrestSet[sub] = _timeToPrestSet[sub] ?? <String>{};
                           _timeToPrestSet[sub]!.add(docPrest);
                         }
@@ -224,13 +228,14 @@ class _BookingPageState extends State<BookingPage> {
 
       final allTimes = _timeToPrestSet.keys.toList();
       // sort times
-      allTimes.sort((a,b) => _compareTimes(_timeOfDayFromString(a), _timeOfDayFromString(b)));
+      allTimes.sort((a, b) => _compareTimes(_timeOfDayFromString(a), _timeOfDayFromString(b)));
+
       setState(() {
         _sortedTimes = allTimes;
         _isLoading = false;
       });
       print('_timeToPrestSet => $_timeToPrestSet');
-    } catch(e) {
+    } catch (e) {
       print('Error fetching availability: $e');
       setState(() {
         _isLoading = false;
@@ -241,15 +246,23 @@ class _BookingPageState extends State<BookingPage> {
 
   /// Convert date -> "monday", etc.
   String _englishDayOfWeek(DateTime d) {
-    switch(d.weekday) {
-      case DateTime.monday: return 'monday';
-      case DateTime.tuesday: return 'tuesday';
-      case DateTime.wednesday: return 'wednesday';
-      case DateTime.thursday: return 'thursday';
-      case DateTime.friday: return 'friday';
-      case DateTime.saturday: return 'saturday';
-      case DateTime.sunday: return 'sunday';
-      default: return '';
+    switch (d.weekday) {
+      case DateTime.monday:
+        return 'monday';
+      case DateTime.tuesday:
+        return 'tuesday';
+      case DateTime.wednesday:
+        return 'wednesday';
+      case DateTime.thursday:
+        return 'thursday';
+      case DateTime.friday:
+        return 'friday';
+      case DateTime.saturday:
+        return 'saturday';
+      case DateTime.sunday:
+        return 'sunday';
+      default:
+        return '';
     }
   }
 
@@ -258,37 +271,39 @@ class _BookingPageState extends State<BookingPage> {
       final parts = str.split(':');
       final h = int.parse(parts[0]);
       final m = int.parse(parts[1]);
-      return TimeOfDay(hour:h, minute:m);
-    } catch(_) { return null;}
+      return TimeOfDay(hour: h, minute: m);
+    } catch (_) {
+      return null;
+    }
   }
 
   TimeOfDay _timeOfDayFromString(String str) {
     final parts = str.split(':');
-    return TimeOfDay(hour:int.parse(parts[0]), minute:int.parse(parts[1]));
+    return TimeOfDay(hour: int.parse(parts[0]), minute: int.parse(parts[1]));
   }
 
   int _compareTimes(TimeOfDay a, TimeOfDay b) {
-    final aM = a.hour*60 + a.minute;
-    final bM = b.hour*60 + b.minute;
+    final aM = a.hour * 60 + a.minute;
+    final bM = b.hour * 60 + b.minute;
     return aM.compareTo(bM);
   }
 
   List<String> _generate30MinSlots(TimeOfDay st, TimeOfDay et) {
     final result = <String>[];
-    var current = DateTime(2000,1,1, st.hour, st.minute);
-    final end = DateTime(2000,1,1, et.hour, et.minute);
+    var current = DateTime(2000, 1, 1, st.hour, st.minute);
+    final end = DateTime(2000, 1, 1, et.hour, et.minute);
     while (current.isBefore(end)) {
       final td = TimeOfDay.fromDateTime(current);
-      final hh = td.hour.toString().padLeft(2,'0');
-      final mm = td.minute.toString().padLeft(2,'0');
+      final hh = td.hour.toString().padLeft(2, '0');
+      final mm = td.minute.toString().padLeft(2, '0');
       result.add('$hh:$mm');
-      current = current.add(const Duration(minutes:30));
+      current = current.add(const Duration(minutes: 30));
     }
     return result;
   }
 
-  /// When user taps "Make Appointment"
-  Future<void> _makeAppointment(String doctorId) async {
+  /// Book the appointment
+  Future<void> _makeAppointment() async {
     if (_selectedTime == null ||
         _selectedPrestataire == null ||
         _selectedDay == null ||
@@ -307,18 +322,15 @@ class _BookingPageState extends State<BookingPage> {
     try {
       final dateStr = DateFormat('yyyy-MM-dd').format(_selectedDay!);
       final timeStr = _selectedTime!;
-      // how many half-hour blocks
       int duree = 30;
       try {
-        duree = int.parse(_selectedPrestation!['duree']);
-      } catch(_){}
-      int slotsNeeded = (duree + 29)~/30;
-      final dayOfWeek = _englishDayOfWeek(_selectedDay!);
-      final prestationId = _selectedPrestation!['id'] ?? 'unknown';
+        duree = int.parse(_selectedPrestation!['duree'].toString());
+      } catch (_) {}
 
+      final dayOfWeek = _englishDayOfWeek(_selectedDay!);
       String chosenPrest = _selectedPrestataire!;
-      // If "Any," check which prests have that time in _timeToPrestSet
-      // Then pick randomly from them
+
+      // If "Any," pick a random available prestataire
       if (chosenPrest == 'Any') {
         final possiblePrests = _timeToPrestSet[timeStr] ?? {};
         if (possiblePrests.isEmpty) {
@@ -333,17 +345,26 @@ class _BookingPageState extends State<BookingPage> {
         print('Randomly picking $chosenPrest from $listP for time=$timeStr');
       }
 
-      // Book appointment
-      final auth = Provider.of<AuthModel>(context, listen:false);
+      final auth = Provider.of<AuthModel>(context, listen: false);
+
+      // use 'uid'
+      final docUid = doctor!['uid']?.toString();
+      if (docUid == null || docUid.isEmpty) {
+        throw Exception('No valid doctor uid found in the doc.');
+      }
+
+      final prestationId = _selectedPrestation!['id'].toString();
+
       final success = await auth.bookAppointment(
         date: dateStr,
         day: dayOfWeek,
         time: timeStr,
-        doctorId: doctorId,
+        doctorId: docUid,
         prestataire: chosenPrest,
         prestationId: prestationId,
         prestationDuree: duree,
       );
+
       if (!success) {
         setState(() {
           _errorMessage = 'Failed to book appointment.';
@@ -351,21 +372,19 @@ class _BookingPageState extends State<BookingPage> {
         return;
       }
 
-      // Remove that slot from that one doc
-      print('Removing $slotsNeeded slot(s) from $chosenPrest for time=$timeStr');
+      // Remove that slot from availability
       final removeOk = await auth.removeSlotsFromAvailability(
-        doctorId: doctorId,
+        doctorId: docUid,
         prestataireName: chosenPrest,
         dateStr: dateStr,
         startTimeStr: timeStr,
-        slotsCount: slotsNeeded,
+        slotsCount: (duree + 29) ~/ 30,
       );
       if (!removeOk) {
         print('Warning: removeSlotsFromAvailability failed for $chosenPrest');
       }
 
-      // success
-      MyApp.navigatorKey.currentState!.pushReplacementNamed('success_booking');
+      Navigator.pushReplacementNamed(context, 'success_booking');
     } catch (e) {
       print('Error booking appointment: $e');
       setState(() {
@@ -401,15 +420,14 @@ class _BookingPageState extends State<BookingPage> {
       ),
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal:10, vertical:15),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 15),
           child: Column(
             children: [
               _buildPrestationsList(),
-              const SizedBox(height:20),
+              const SizedBox(height: 20),
               _buildSelectedPrestationDetails(),
               _buildDatePicker(),
               if (_prestataires.isNotEmpty) _buildPrestataireDropdown(),
-
               // Display times
               if (_sortedTimes.isNotEmpty)
                 _buildTimeSlots()
@@ -417,18 +435,20 @@ class _BookingPageState extends State<BookingPage> {
                   _selectedPrestataire != null &&
                   _selectedDay != null &&
                   !_isLoading)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal:10, vertical:20),
-                  child: const Text(
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 10, vertical: 20),
+                  child: Text(
                     'No available times for the selected date/prestataire.',
-                    style: TextStyle(fontSize:16, fontWeight:FontWeight.bold, color: Colors.grey),
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.grey,
+                    ),
                   ),
                 ),
-
-              if (_isLoading) const SizedBox(height:20),
+              if (_isLoading) const SizedBox(height: 20),
               if (_isLoading) const CircularProgressIndicator(),
-              const SizedBox(height:40),
-
+              const SizedBox(height: 40),
               Button(
                 width: double.infinity,
                 title: 'Make Appointment',
@@ -437,11 +457,11 @@ class _BookingPageState extends State<BookingPage> {
                       _selectedPrestataire != null &&
                       _selectedDay != null &&
                       _selectedTime != null) {
-                    await _makeAppointment(doctor!['doc_id']);
+                    await _makeAppointment();
                   } else {
                     setState(() {
-                      _errorMessage = 'Please select prestation, '
-                          'prestataire, date & time.';
+                      _errorMessage =
+                      'Please select prestation, prestataire, date & time.';
                     });
                   }
                 },
@@ -450,12 +470,11 @@ class _BookingPageState extends State<BookingPage> {
                     _selectedDay != null &&
                     _selectedTime != null),
               ),
-
-              if (_errorMessage != null)...[
-                const SizedBox(height:10),
+              if (_errorMessage != null) ...[
+                const SizedBox(height: 10),
                 Text(
                   _errorMessage!,
-                  style: const TextStyle(color:Colors.red, fontSize:16),
+                  style: const TextStyle(color: Colors.red, fontSize: 16),
                   textAlign: TextAlign.center,
                 )
               ],
@@ -470,7 +489,7 @@ class _BookingPageState extends State<BookingPage> {
     if (_prestationsList.isEmpty) {
       return const Text(
         'No prestations available',
-        style: TextStyle(fontSize:16, fontWeight:FontWeight.bold),
+        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
       );
     }
     return Column(
@@ -478,12 +497,12 @@ class _BookingPageState extends State<BookingPage> {
       children: [
         const Text(
           'Choose a prestation:',
-          style: TextStyle(fontSize:18, fontWeight:FontWeight.bold),
+          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
         ),
-        const SizedBox(height:10),
+        const SizedBox(height: 10),
         ListView.builder(
           itemCount: _prestationsList.length,
-          shrinkWrap:true,
+          shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           itemBuilder: (context, idx) {
             final p = _prestationsList[idx];
@@ -493,14 +512,14 @@ class _BookingPageState extends State<BookingPage> {
               child: ListTile(
                 title: Text(
                   p['nom'],
-                  style: const TextStyle(fontWeight:FontWeight.bold),
+                  style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
                 subtitle: Text('Duration: ${p['duree']} min | Price: ${p['prix']}'),
                 trailing: Icon(
                   isSelected ? Icons.check_circle : Icons.check_circle_outline,
                   color: isSelected ? Config.primaryColor : Colors.grey,
                 ),
-                onTap: ()=> _onPrestationSelected(p),
+                onTap: () => _onPrestationSelected(p),
               ),
             );
           },
@@ -513,7 +532,7 @@ class _BookingPageState extends State<BookingPage> {
     if (_selectedPrestation == null) return const SizedBox.shrink();
     return Container(
       width: double.infinity,
-      margin: const EdgeInsets.only(top:10, bottom:20),
+      margin: const EdgeInsets.only(top: 10, bottom: 20),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: Config.primaryColor.withOpacity(0.05),
@@ -521,25 +540,25 @@ class _BookingPageState extends State<BookingPage> {
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children:[
+        children: [
           Text(
             'Selected Prestation: ${_selectedPrestation!['nom']}',
-            style: const TextStyle(fontSize:16, fontWeight:FontWeight.bold),
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
           ),
-          const SizedBox(height:6),
+          const SizedBox(height: 6),
           Text(
             'Description: ${_selectedPrestation!['description']}',
-            style: const TextStyle(fontSize:14),
+            style: const TextStyle(fontSize: 14),
           ),
-          const SizedBox(height:6),
+          const SizedBox(height: 6),
           Text(
             'Duration: ${_selectedPrestation!['duree']} min',
-            style: const TextStyle(fontSize:14),
+            style: const TextStyle(fontSize: 14),
           ),
-          const SizedBox(height:6),
+          const SizedBox(height: 6),
           Text(
             'Price: ${_selectedPrestation!['prix']}',
-            style: const TextStyle(fontSize:14),
+            style: const TextStyle(fontSize: 14),
           ),
         ],
       ),
@@ -553,9 +572,9 @@ class _BookingPageState extends State<BookingPage> {
           onPressed: _pickDate,
           icon: const Icon(Icons.calendar_today),
           label: const Text('Choose Date'),
-          style: ElevatedButton.styleFrom(backgroundColor:Config.primaryColor),
+          style: ElevatedButton.styleFrom(backgroundColor: Config.primaryColor),
         ),
-        const SizedBox(width:10),
+        const SizedBox(width: 10),
         _selectedDay == null
             ? const Text('No date selected')
             : Text(DateFormat('yyyy-MM-dd').format(_selectedDay!)),
@@ -566,7 +585,7 @@ class _BookingPageState extends State<BookingPage> {
   Widget _buildPrestataireDropdown() {
     if (_prestataires.isEmpty) return const SizedBox.shrink();
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical:10),
+      padding: const EdgeInsets.symmetric(vertical: 10),
       child: DropdownButtonFormField<String>(
         decoration: const InputDecoration(
           labelText: 'Select Prestataire',
@@ -574,7 +593,7 @@ class _BookingPageState extends State<BookingPage> {
         ),
         value: _selectedPrestataire,
         onChanged: _onPrestataireChanged,
-        items: _prestataires.map((pName){
+        items: _prestataires.map((pName) {
           return DropdownMenuItem<String>(
             value: pName,
             child: Text(pName),
@@ -586,22 +605,22 @@ class _BookingPageState extends State<BookingPage> {
 
   Widget _buildTimeSlots() {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical:10),
+      padding: const EdgeInsets.symmetric(vertical: 10),
       child: GridView.builder(
         shrinkWrap: true,
         physics: const NeverScrollableScrollPhysics(),
         itemCount: _sortedTimes.length,
         gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount:4,
-          childAspectRatio:2.0,
-          crossAxisSpacing:10,
-          mainAxisSpacing:10,
+          crossAxisCount: 4,
+          childAspectRatio: 2.0,
+          crossAxisSpacing: 10,
+          mainAxisSpacing: 10,
         ),
         itemBuilder: (context, idx) {
           final timeStr = _sortedTimes[idx];
           final isSelected = _selectedTime == timeStr;
           return InkWell(
-            onTap: (){
+            onTap: () {
               setState(() {
                 _selectedTime = timeStr;
               });
@@ -610,14 +629,15 @@ class _BookingPageState extends State<BookingPage> {
             child: Container(
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                border: Border.all(color: isSelected ? Colors.white : Colors.black),
+                border:
+                Border.all(color: isSelected ? Colors.white : Colors.black),
                 borderRadius: BorderRadius.circular(15),
                 color: isSelected ? Config.primaryColor : Colors.transparent,
               ),
               child: Text(
                 timeStr,
                 style: TextStyle(
-                  fontWeight:FontWeight.bold,
+                  fontWeight: FontWeight.bold,
                   color: isSelected ? Colors.white : Colors.black,
                 ),
               ),
