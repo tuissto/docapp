@@ -60,10 +60,16 @@ class _DoctorDetailsState extends State<DoctorDetails> {
               });
 
               try {
-                // Toggle favorite status
+                // Ensure we have 'doc_id' so addFavoriteDoctor(...) works
+                if (doctor['doc_id'] == null && doctor['uid'] != null) {
+                  doctor['doc_id'] = doctor['uid'];
+                }
+
                 if (isFav) {
+                  // remove from favorites
                   await auth.removeFavoriteDoctor(doctor['doc_id']);
                 } else {
+                  // add to favorites
                   await auth.addFavoriteDoctor(doctor);
                 }
 
@@ -82,8 +88,7 @@ class _DoctorDetailsState extends State<DoctorDetails> {
                 );
               } catch (e) {
                 setState(() {
-                  _errorMessage =
-                  'Échec de la mise à jour des favoris. Veuillez réessayer.';
+                  _errorMessage = 'Échec de la mise à jour des favoris. Veuillez réessayer.';
                 });
                 print('Erreur lors de la mise à jour des favoris: $e');
               } finally {
@@ -129,7 +134,7 @@ class _DoctorDetailsState extends State<DoctorDetails> {
                 title: 'Réservez un rendez-vous',
                 onPressed: () {
                   Navigator.of(context).pushNamed(
-                    'booking_page',
+                    'booking_page', // Make sure this matches your route name (no leading slash if your route is 'booking_page')
                     arguments: doctor,
                   );
                 },
@@ -208,8 +213,8 @@ class _AboutDoctorState extends State<AboutDoctor> {
                 child: Text('Aucune image'),
               ),
             )
-                : // Ensure mouse dragging works by customizing scroll behavior
-            ScrollConfiguration(
+                : ScrollConfiguration(
+              // ensure mouse dragging works by customizing scroll behavior
               behavior: MyCustomScrollBehavior(),
               child: PageView.builder(
                 controller: _pageController,
@@ -260,7 +265,6 @@ class _AboutDoctorState extends State<AboutDoctor> {
               ),
             ),
           ),
-
           Config.spaceMedium,
 
           // Basic info

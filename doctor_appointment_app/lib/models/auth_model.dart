@@ -536,38 +536,53 @@ class AuthModel extends ChangeNotifier {
 
   Future<void> addFavoriteDoctor(Map<String, dynamic> doctor) async {
     try {
-      final String doctorId = doctor['doc_id'];
+      // The currently logged-in user's UID
       final String userId = _auth.currentUser!.uid;
 
-      if (!_favDocIds.contains(doctorId)) {
+      // Attempt to find a 'users/{userId}' doc
+      final userSnap = await _firestore.collection('users').doc(userId).get();
+      if (userSnap.exists) {
+        // It's a normal user => store favorites in users/{uid}
+
+        // Ensure doc_id is present in the doctor map
+        final String doctorId = doctor['doc_id'] ?? '';
+        if (doctorId.isEmpty) {
+          throw Exception('No doc_id found in doctor map.');
+        }
+
+        // Update the 'fav' array in users/{uid}
         await _firestore.collection('users').doc(userId).update({
           'fav': FieldValue.arrayUnion([doctorId]),
         });
+        print('Added $doctorId to fav for normal user $userId');
 
-        _favDocIds.add(doctorId);
-        _favDoc.add({
-          'doc_id': doctor['doc_id'],
-          'doctor_name': doctor['doctor_name'],
-          'category': doctor['category'],
-          'doctor_profile_url': doctor['doctor_profile_url'] ?? '',
-          'images': doctor['images'] ?? [],
-          'patients': doctor['patients'] ?? 0,
-          'experience': doctor['experience'] ?? 0,
-          'qualifications': doctor['qualifications'] ?? '',
-          'hospital': doctor['hospital'] ?? '',
-          'prestataires': doctor.containsKey('prestataires')
-              ? List<String>.from(doctor['prestataires'])
-              : [],
-          'prestations': doctor['prestations'] ?? {},
+      } else {
+        // No doc in 'users/' => check 'doctors/{uid}'
+        final proSnap = await _firestore.collection('doctors').doc(userId).get();
+        if (!proSnap.exists) {
+          // Neither users/ nor doctors/ has a doc => error
+          throw Exception('No doc in users/ or doctors/ for UID=$userId');
+        }
+
+        // It's a pro => store favorites in doctors/{uid}
+        final String doctorId = doctor['doc_id'] ?? '';
+        if (doctorId.isEmpty) {
+          throw Exception('No doc_id found in doctor map.');
+        }
+
+        // We keep a 'fav' array in the "doctors/{uid}" doc
+        await _firestore.collection('doctors').doc(userId).update({
+          'fav': FieldValue.arrayUnion([doctorId]),
         });
-
-        notifyListeners();
+        print('Added $doctorId to fav for pro user $userId');
       }
+
     } catch (e) {
       print('Error adding favorite doctor: $e');
       throw Exception('Failed to add favorite doctor');
     }
   }
+
 
   Future<void> removeFavoriteDoctor(String doctorId) async {
     try {
