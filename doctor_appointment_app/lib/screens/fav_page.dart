@@ -1,9 +1,7 @@
-// lib/screens/fav_page.dart
-
+import "dart:async";
 import "package:doctor_appointment_app/components/doctor_card.dart";
 import "package:flutter/material.dart";
 import "package:provider/provider.dart";
-
 import "../models/auth_model.dart";
 
 class FavPage extends StatefulWidget {
@@ -20,23 +18,38 @@ class _FavPageState extends State<FavPage> {
   @override
   void initState() {
     super.initState();
-    _fetchFavoriteDoctors();
+
+    // 1) Schedule _fetchFavoriteDoctors AFTER the initial frame
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _fetchFavoriteDoctors();
+    });
   }
 
-  // Fetch favorite doctors using AuthModel
+  // 2) Fetch favorite doctors using AuthModel
   Future<void> _fetchFavoriteDoctors() async {
     try {
       final auth = Provider.of<AuthModel>(context, listen: false);
-      await auth.fetchFavoriteDoctors(); // Ensure this method is implemented
-      setState(() {
-        _isLoading = false;
+
+      await auth.fetchFavoriteDoctors(); // This might do notifyListeners()
+
+      // Defer setState to next microtask => avoid "setState during build" collision
+      Future.microtask(() {
+        if (!mounted) return;
+        setState(() {
+          _isLoading = false;
+          _errorMessage = null;
+        });
       });
     } catch (e) {
-      setState(() {
-        _errorMessage = 'Échec du chargement de la liste de favoris';
-        _isLoading = false;
-      });
       print('Error fetching favorite doctors: $e');
+
+      Future.microtask(() {
+        if (!mounted) return;
+        setState(() {
+          _errorMessage = 'Échec du chargement de la liste de favoris.';
+          _isLoading = false;
+        });
+      });
     }
   }
 
@@ -49,15 +62,14 @@ class _FavPageState extends State<FavPage> {
           padding: const EdgeInsets.only(left: 20, top: 20, right: 20),
           child: Column(
             children: [
-              // Removed the 'Favoris' Text widget and SizedBox
+              // No separate "Favoris" title here, as your code states
               Expanded(
                 child: Consumer<AuthModel>(
                   builder: (context, auth, child) {
                     if (_isLoading) {
-                      return const Center(
-                        child: CircularProgressIndicator(),
-                      );
-                    } else if (_errorMessage != null) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    if (_errorMessage != null) {
                       return Center(
                         child: Text(
                           _errorMessage!,
@@ -67,7 +79,8 @@ class _FavPageState extends State<FavPage> {
                           ),
                         ),
                       );
-                    } else if (auth.favDoc.isEmpty) {
+                    }
+                    if (auth.favDoc.isEmpty) {
                       return const Center(
                         child: Text(
                           'Vous n’avez pas encore ajouté de favori',
@@ -77,17 +90,17 @@ class _FavPageState extends State<FavPage> {
                           ),
                         ),
                       );
-                    } else {
-                      return ListView.builder(
-                        itemCount: auth.favDoc.length,
-                        itemBuilder: (context, index) {
-                          return DoctorCard(
-                            doctor: auth.favDoc[index],
-                            isFav: true,
-                          );
-                        },
-                      );
                     }
+                    // If we get here, we have favorites to display
+                    return ListView.builder(
+                      itemCount: auth.favDoc.length,
+                      itemBuilder: (context, index) {
+                        return DoctorCard(
+                          doctor: auth.favDoc[index],
+                          isFav: true,
+                        );
+                      },
+                    );
                   },
                 ),
               ),

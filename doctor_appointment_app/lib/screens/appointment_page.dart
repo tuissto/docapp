@@ -1,5 +1,3 @@
-// lib/screens/appointment_page.dart
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:doctor_appointment_app/models/auth_model.dart';
 import 'package:doctor_appointment_app/utils/config.dart';
@@ -7,9 +5,9 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
+// Provide French display names for FilterStatus
 enum FilterStatus { upcoming, completed, cancelled }
 
-// Provide French display names for FilterStatus
 extension FilterStatusExtension on FilterStatus {
   String get displayName {
     switch (this) {
@@ -43,31 +41,47 @@ class _AppointmentPageState extends State<AppointmentPage> {
   @override
   void initState() {
     super.initState();
-    fetchAppointments();
+
+    // Defer fetching appointments until after the initial frame
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _fetchAppointments();
+    });
   }
 
-  // Fetch appointments from your AuthModel
-  Future<void> fetchAppointments() async {
+  /// Fetch appointments from your AuthModel
+  Future<void> _fetchAppointments() async {
+    // Optionally show loading spinner immediately
+    if (mounted) {
+      setState(() => _isLoading = true);
+    }
     try {
       final auth = Provider.of<AuthModel>(context, listen: false);
 
-      // Update the status of old appointments to 'completed'
+      // 1) Update old appointments => 'completed'
       await auth.updatePastAppointmentsStatus();
-      // Then refetch them (which also merges 'images' from doc)
-      await auth.fetchAppointments();
+      if (!mounted) return; // user may have left the page
 
-      // Get the newly updated list
+      // 2) Re-fetch appointments (which merges images from doc)
+      await auth.fetchAppointments();
+      if (!mounted) return;
+
+      // 3) Retrieve them
       final fetched = await auth.getAppointments();
+      if (!mounted) return;
+
+      // 4) Now setState
       setState(() {
-        schedules = fetched; // store them all
+        schedules = fetched;
         _isLoading = false;
+        _errorMessage = null;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _isLoading = false;
         _errorMessage = 'Échec du chargement des rendez-vous.';
       });
-      print('Error in fetchAppointments: $e');
+      print('Error in _fetchAppointments: $e');
     }
   }
 
@@ -95,7 +109,6 @@ class _AppointmentPageState extends State<AppointmentPage> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Config.spaceSmall,
-
               // Status toggle bar
               Stack(
                 children: [
@@ -160,7 +173,6 @@ class _AppointmentPageState extends State<AppointmentPage> {
                   ),
                 ],
               ),
-
               Config.spaceSmall,
 
               Expanded(
@@ -205,20 +217,18 @@ class _AppointmentPageState extends State<AppointmentPage> {
                       child: Padding(
                         padding: const EdgeInsets.all(15),
                         child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          crossAxisAlignment:
+                          CrossAxisAlignment.stretch,
                           children: [
                             // Doctor row
                             _doctorRow(schedule),
-
                             const SizedBox(height: 15),
-
                             // Additional info
                             _buildScheduleInfo(schedule),
-
                             const SizedBox(height: 15),
 
-                            // If it is 'cancelled' or 'completed', show text
-                            // else show reprogram/cancel buttons
+                            // If 'cancelled' or 'completed', show a text
+                            // else reprogram/cancel buttons
                             if (schedule['status'] == 'cancelled' ||
                                 schedule['status'] == 'completed')
                               Text(
@@ -226,7 +236,8 @@ class _AppointmentPageState extends State<AppointmentPage> {
                                     ? 'Annulé'
                                     : 'Passé',
                                 style: TextStyle(
-                                  color: (schedule['status'] == 'cancelled')
+                                  color: (schedule['status'] ==
+                                      'cancelled')
                                       ? Colors.red
                                       : Colors.green,
                                   fontWeight: FontWeight.bold,
@@ -237,11 +248,13 @@ class _AppointmentPageState extends State<AppointmentPage> {
                                 children: [
                                   Expanded(
                                     child: ElevatedButton(
-                                      style: ElevatedButton.styleFrom(
+                                      style: ElevatedButton
+                                          .styleFrom(
                                         backgroundColor: Colors.red,
                                       ),
                                       onPressed: () =>
-                                          _cancelAppointment(schedule),
+                                          _cancelAppointment(
+                                              schedule),
                                       child: const Text(
                                         'Annuler',
                                         style: TextStyle(
@@ -253,11 +266,14 @@ class _AppointmentPageState extends State<AppointmentPage> {
                                   const SizedBox(width: 20),
                                   Expanded(
                                     child: ElevatedButton(
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: Colors.green,
+                                      style: ElevatedButton
+                                          .styleFrom(
+                                        backgroundColor:
+                                        Colors.green,
                                       ),
                                       onPressed: () =>
-                                          _reprogramAppointment(schedule),
+                                          _reprogramAppointment(
+                                              schedule),
                                       child: const Text(
                                         'Reprogrammer',
                                         style: TextStyle(
@@ -427,8 +443,11 @@ class _AppointmentPageState extends State<AppointmentPage> {
     );
     if (confirm == true) {
       final success = await auth.cancelAppointment(appointmentId);
+      if (!mounted) return;
       if (success) {
-        await fetchAppointments(); // re-fetch so we see new status
+        // Re-fetch so we see new status
+        await _fetchAppointments();
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Rendez-vous annulé avec succès.')),
         );
@@ -470,8 +489,10 @@ class _AppointmentPageState extends State<AppointmentPage> {
       newDate: dateStr,
       newTime: timeStr,
     );
+    if (!mounted) return;
     if (success) {
-      await fetchAppointments();
+      await _fetchAppointments();
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Rendez-vous reprogrammé au $dateStr à $timeStr.'),

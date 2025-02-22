@@ -489,120 +489,157 @@ class AuthModel extends ChangeNotifier {
   }
 
   Future<void> fetchFavoriteDoctors() async {
-    _favDoc = [];
+    _favDoc = []; // clear the old list
     try {
-      if (_favDocIds.isNotEmpty) {
-        final List<Map<String, dynamic>> fetchedFavDocs = [];
-        const batchSize = 10;
-        for (int i = 0; i < _favDocIds.length; i += batchSize) {
-          final end = (i + batchSize > _favDocIds.length)
-              ? _favDocIds.length
-              : i + batchSize;
-          final batch = _favDocIds.sublist(i, end);
+      final userId = _auth.currentUser!.uid;
 
-          final doctorSnapshot = await _firestore
-              .collection('doctors')
-              .where('doc_id', whereIn: batch)
-              .get();
-
-          fetchedFavDocs.addAll(doctorSnapshot.docs.map((doc) {
-            final data = doc.data() as Map<String, dynamic>;
-            return {
-              'doc_id': data['doc_id'],
-              'doctor_name': data['doctor_name'],
-              'category': data['category'],
-              'doctor_profile_url': data['doctor_profile_url'] ?? '',
-              'images': data['images'] ?? [],
-              'patients': data['patients'] ?? 0,
-              'experience': data['experience'] ?? 0,
-              'qualifications': data['qualifications'] ?? '',
-              'hospital': data['hospital'] ?? '',
-              'prestataires': data.containsKey('prestataires')
-                  ? List<String>.from(data['prestataires'])
-                  : [],
-              'prestations': data['prestations'] ?? {},
-            };
-          }).toList());
-        }
-        _favDoc = fetchedFavDocs;
+      // Check if there's a doc in "users/uid"
+      final userSnap = await _firestore.collection('users').doc(userId).get();
+      if (userSnap.exists) {
+        // Normal user => read 'fav' from userSnap
+        final userData = userSnap.data() as Map<String, dynamic>;
+        final favArray = List<String>.from(userData['fav'] ?? []);
+        await _fetchFavDocsFromDoctorCollection(favArray);
       } else {
-        _favDoc = [];
+        // No doc in users/ => check "doctors/uid"
+        final proSnap = await _firestore.collection('doctors').doc(userId).get();
+        if (proSnap.exists) {
+          // Pro => read 'fav' from proSnap
+          final proData = proSnap.data() as Map<String, dynamic>;
+          final favArray = List<String>.from(proData['fav'] ?? []);
+          await _fetchFavDocsFromDoctorCollection(favArray);
+        } else {
+          // neither doc => no favorites
+          print('No user or pro doc found => no favorites');
+        }
       }
+
       notifyListeners();
     } catch (e) {
       print('Error fetching favorite doctors: $e');
     }
   }
 
+  Future<void> _fetchFavDocsFromDoctorCollection(List<String> favArray) async {
+    if (favArray.isEmpty) {
+      _favDoc = [];
+      return;
+    }
+    _favDoc = [];
+    // Use a set to avoid duplicates
+    final seenUids = <String>{};
+
+    try {
+      final chunkSize = 10;
+      for (var i = 0; i < favArray.length; i += chunkSize) {
+        final sublist = favArray.sublist(
+          i,
+          (i + chunkSize > favArray.length) ? favArray.length : i + chunkSize,
+        );
+
+        // Query by 'uid'
+        final snap = await _firestore
+            .collection('doctors')
+            .where('uid', whereIn: sublist)
+            .get();
+
+        for (final doc in snap.docs) {
+          final data = doc.data() as Map<String, dynamic>;
+          final docUid = data['uid'] ?? doc.id;
+
+          // If we already added docUid, skip it
+          if (seenUids.contains(docUid)) {
+            continue;
+          }
+          seenUids.add(docUid);
+
+          _favDoc.add({
+            'doc_id': docUid, // Or 'uid'
+            'doctor_name': data['doctor_name'] ?? '',
+            'category': data['category'] ?? '',
+            'doctor_profile_url': data['doctor_profile_url'] ?? '',
+            'images': data['images'] ?? [],
+            // etc...
+          });
+        }
+      }
+    } catch (e) {
+      print('Error in _fetchFavDocsFromDoctorCollection: $e');
+    }
+  }
+
   Future<void> addFavoriteDoctor(Map<String, dynamic> doctor) async {
     try {
-      // The currently logged-in user's UID
       final String userId = _auth.currentUser!.uid;
+
+      // If doc_id not present, fallback to 'uid'
+      String doctorId = doctor['doc_id'] ?? doctor['uid'] ?? '';
+      if (doctorId.isEmpty) {
+        throw Exception('No doc_id or uid found in doctor map.');
+      }
 
       // Attempt to find a 'users/{userId}' doc
       final userSnap = await _firestore.collection('users').doc(userId).get();
       if (userSnap.exists) {
-        // It's a normal user => store favorites in users/{uid}
-
-        // Ensure doc_id is present in the doctor map
-        final String doctorId = doctor['doc_id'] ?? '';
-        if (doctorId.isEmpty) {
-          throw Exception('No doc_id found in doctor map.');
-        }
-
-        // Update the 'fav' array in users/{uid}
+        // Normal user => store favorites in users/{uid}
         await _firestore.collection('users').doc(userId).update({
           'fav': FieldValue.arrayUnion([doctorId]),
         });
         print('Added $doctorId to fav for normal user $userId');
-
       } else {
-        // No doc in 'users/' => check 'doctors/{uid}'
+        // Check 'doctors/{userId}' => maybe pro user
         final proSnap = await _firestore.collection('doctors').doc(userId).get();
         if (!proSnap.exists) {
-          // Neither users/ nor doctors/ has a doc => error
           throw Exception('No doc in users/ or doctors/ for UID=$userId');
         }
-
         // It's a pro => store favorites in doctors/{uid}
-        final String doctorId = doctor['doc_id'] ?? '';
-        if (doctorId.isEmpty) {
-          throw Exception('No doc_id found in doctor map.');
-        }
-
-        // We keep a 'fav' array in the "doctors/{uid}" doc
         await _firestore.collection('doctors').doc(userId).update({
           'fav': FieldValue.arrayUnion([doctorId]),
         });
         print('Added $doctorId to fav for pro user $userId');
       }
-
     } catch (e) {
       print('Error adding favorite doctor: $e');
       throw Exception('Failed to add favorite doctor');
     }
   }
 
-
   Future<void> removeFavoriteDoctor(String doctorId) async {
     try {
       final String userId = _auth.currentUser!.uid;
 
-      if (_favDocIds.contains(doctorId)) {
+      // Check user doc first
+      final userSnap = await _firestore.collection('users').doc(userId).get();
+      if (userSnap.exists) {
+        // normal user => remove from 'users/{uid}.fav'
         await _firestore.collection('users').doc(userId).update({
           'fav': FieldValue.arrayRemove([doctorId]),
         });
-
-        _favDocIds.remove(doctorId);
+        // also remove from local _favDoc
         _favDoc.removeWhere((d) => d['doc_id'] == doctorId);
-
-        notifyListeners();
+        print('Removed $doctorId from normal user $userId favorites');
+      } else {
+        // check pro doc
+        final proSnap = await _firestore.collection('doctors').doc(userId).get();
+        if (proSnap.exists) {
+          // pro => remove from 'doctors/{uid}.fav'
+          await _firestore.collection('doctors').doc(userId).update({
+            'fav': FieldValue.arrayRemove([doctorId]),
+          });
+          _favDoc.removeWhere((d) => d['doc_id'] == doctorId);
+          print('Removed $doctorId from pro user $userId favorites');
+        } else {
+          print('No user or pro doc found => cannot removeFavorite');
+        }
       }
+
+      notifyListeners();
     } catch (e) {
       print('Error removing favorite doctor: $e');
       throw Exception('Failed to remove favorite doctor');
     }
   }
+
 
   Future<List<Map<String, dynamic>>> getAppointments() async {
     try {

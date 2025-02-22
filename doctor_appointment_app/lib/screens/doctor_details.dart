@@ -1,8 +1,10 @@
 import 'dart:io';
+import 'dart:async'; // for Future.microtask
+import 'dart:ui' as ui;  // Added for PointerDeviceKind
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:doctor_appointment_app/components/button.dart';
 import 'package:doctor_appointment_app/models/auth_model.dart';
 import 'package:doctor_appointment_app/utils/config.dart';
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:provider/provider.dart';
@@ -34,14 +36,53 @@ class _DoctorDetailsState extends State<DoctorDetails> {
     super.initState();
     doctor = widget.doctor;
     isFav = widget.isFav;
+    print('Initial Doctor Data in Details: $doctor');
+    // If prestations are missing, fetch the full doctor document.
+    if (doctor['prestations'] == null ||
+        (doctor['prestations'] is Map && (doctor['prestations'] as Map).isEmpty)) {
+      fetchFullDoctorData();
+    }
+  }
 
-    print('Doctor Data in Details: $doctor'); // Debug print
+  Future<void> fetchFullDoctorData() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+    try {
+      // Use either 'doc_id' or 'uid'
+      final docId = doctor['doc_id'] ?? doctor['uid'];
+      if (docId == null || docId.toString().isEmpty) {
+        throw Exception('Doctor UID is missing.');
+      }
+      final docSnap =
+      await FirebaseFirestore.instance.collection('doctors').doc(docId.toString()).get();
+      if (docSnap.exists) {
+        final fullData = docSnap.data() as Map<String, dynamic>;
+        setState(() {
+          doctor = {
+            ...doctor,
+            ...fullData,
+          };
+        });
+        print('Full Doctor Data Fetched: $doctor');
+      } else {
+        print('Doctor not found in Firestore.');
+      }
+    } catch (e) {
+      print('Error fetching full doctor details: $e');
+      setState(() {
+        _errorMessage = 'Erreur de chargement des détails du docteur.';
+      });
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final auth = Provider.of<AuthModel>(context, listen: false);
-
     return Scaffold(
       backgroundColor: Config.primaryColor,
       appBar: CustomAppBar(
@@ -53,47 +94,52 @@ class _DoctorDetailsState extends State<DoctorDetails> {
         actions: [
           // Favorite Button
           IconButton(
-            onPressed: () async {
-              setState(() {
-                _isLoading = true;
-                _errorMessage = null;
-              });
-
+            onPressed: _isLoading
+                ? null
+                : () async {
+              setState(() => _isLoading = true);
               try {
-                // Ensure we have 'doc_id' so addFavoriteDoctor(...) works
+                // Ensure doc_id is present
                 if (doctor['doc_id'] == null && doctor['uid'] != null) {
                   doctor['doc_id'] = doctor['uid'];
                 }
-
+                final auth = Provider.of<AuthModel>(context, listen: false);
                 if (isFav) {
-                  // remove from favorites
                   await auth.removeFavoriteDoctor(doctor['doc_id']);
                 } else {
-                  // add to favorites
                   await auth.addFavoriteDoctor(doctor);
                 }
-
-                setState(() {
-                  isFav = !isFav;
-                });
-
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      isFav ? 'Ajouté aux favoris' : 'Retiré des favoris.',
-                      style: const TextStyle(color: Colors.white),
+                final newIsFav = !isFav;
+                Future.microtask(() {
+                  if (!mounted) return;
+                  setState(() {
+                    isFav = newIsFav;
+                    _errorMessage = null;
+                  });
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        newIsFav ? 'Ajouté aux favoris' : 'Retiré des favoris.',
+                        style: const TextStyle(color: Colors.white),
+                      ),
+                      backgroundColor: newIsFav ? Colors.green : Colors.red,
                     ),
-                    backgroundColor: isFav ? Colors.green : Colors.red,
-                  ),
-                );
-              } catch (e) {
-                setState(() {
-                  _errorMessage = 'Échec de la mise à jour des favoris. Veuillez réessayer.';
+                  );
                 });
+              } catch (e) {
                 print('Erreur lors de la mise à jour des favoris: $e');
+                Future.microtask(() {
+                  if (!mounted) return;
+                  setState(() {
+                    _errorMessage = 'Échec de la mise à jour des favoris. Veuillez réessayer.';
+                  });
+                });
               } finally {
-                setState(() {
-                  _isLoading = false;
+                Future.microtask(() {
+                  if (!mounted) return;
+                  setState(() {
+                    _isLoading = false;
+                  });
                 });
               }
             },
@@ -113,59 +159,30 @@ class _DoctorDetailsState extends State<DoctorDetails> {
           )
         ],
       ),
-      body: SafeArea(
-        child: Column(
-          children: <Widget>[
-            // Top section: horizontal slider for images + basic doctor info
-            AboutDoctor(doctor: doctor),
-
-            // Additional details below
-            Expanded(
-              child: SingleChildScrollView(
-                child: DetailBody(doctor: doctor),
-              ),
-            ),
-
-            // Bottom button
-            Padding(
-              padding: const EdgeInsets.all(20),
-              child: Button(
-                width: double.infinity,
-                title: 'Réservez un rendez-vous',
-                onPressed: () {
-                  Navigator.of(context).pushNamed(
-                    'booking_page', // Make sure this matches your route name (no leading slash if your route is 'booking_page')
-                    arguments: doctor,
-                  );
-                },
-                disable: false,
-                color: const Color(0xFFF8F7F2),
-              ),
-            ),
-
-            // Error message, if any
-            if (_errorMessage != null)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 10),
-                child: Text(
-                  _errorMessage!,
-                  style: const TextStyle(
-                    color: Colors.red,
-                    fontSize: 16,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-              ),
-          ],
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : _errorMessage != null
+          ? Center(
+        child: Text(
+          _errorMessage!,
+          style: const TextStyle(color: Colors.red, fontSize: 16),
         ),
+      )
+          : Column(
+        children: <Widget>[
+          AboutDoctor(doctor: doctor),
+          Expanded(
+            child: SingleChildScrollView(
+              child: DetailBody(doctor: doctor),
+            ),
+          ),
+        ],
       ),
     );
   }
 }
 
-/// A top section that displays all images in a horizontal slider (PageView)
-/// with half the screen width each. If no images => grey box.
-/// Clicking an image -> full-screen gallery with L/R arrows.
+/// Displays doctor images, name, address, etc.
 class AboutDoctor extends StatefulWidget {
   final Map<String, dynamic> doctor;
   const AboutDoctor({Key? key, required this.doctor}) : super(key: key);
@@ -181,7 +198,6 @@ class _AboutDoctorState extends State<AboutDoctor> {
   @override
   void initState() {
     super.initState();
-    // Set half screen width with viewportFraction
     _pageController = PageController(viewportFraction: 0.5);
   }
 
@@ -194,7 +210,6 @@ class _AboutDoctorState extends State<AboutDoctor> {
   @override
   Widget build(BuildContext context) {
     Config().init(context);
-
     final dynamicImages =
     (widget.doctor['images'] is List) ? widget.doctor['images'] as List : [];
     final images = dynamicImages.map((e) => e.toString()).toList();
@@ -203,31 +218,24 @@ class _AboutDoctorState extends State<AboutDoctor> {
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 15),
       child: Column(
         children: [
-          // Horizontal image slider
           SizedBox(
             height: 220,
-            child: (images.isEmpty)
+            child: images.isEmpty
                 ? Container(
               color: Colors.grey,
-              child: const Center(
-                child: Text('Aucune image'),
-              ),
+              child: const Center(child: Text('Aucune image')),
             )
                 : ScrollConfiguration(
-              // ensure mouse dragging works by customizing scroll behavior
               behavior: MyCustomScrollBehavior(),
               child: PageView.builder(
                 controller: _pageController,
-                onPageChanged: (idx) {
-                  setState(() => _currentIndex = idx);
-                },
+                onPageChanged: (idx) => setState(() => _currentIndex = idx),
                 scrollDirection: Axis.horizontal,
                 itemCount: images.length,
                 itemBuilder: (ctx, index) {
                   final url = images[index];
                   return GestureDetector(
                     onTap: () {
-                      // Open a full-screen gallery
                       Navigator.push(
                         context,
                         MaterialPageRoute(
@@ -265,23 +273,18 @@ class _AboutDoctorState extends State<AboutDoctor> {
               ),
             ),
           ),
-          Config.spaceMedium,
-
-          // Basic info
+          const SizedBox(height: 20),
           Text(
             widget.doctor['doctor_name'] ?? 'Nom non disponible',
             style: AppStyles.doctorName,
           ),
-          Config.spaceSmall,
+          const SizedBox(height: 5),
           Text(
             widget.doctor['address'] ?? 'Adresse inconnue',
-            style: const TextStyle(
-              fontSize: 16,
-              color: Colors.grey,
-            ),
+            style: const TextStyle(fontSize: 16, color: Colors.grey),
             textAlign: TextAlign.center,
           ),
-          Config.spaceSmall,
+          const SizedBox(height: 5),
           SizedBox(
             width: Config.widthSize * 0.75,
             child: Text(
@@ -291,7 +294,7 @@ class _AboutDoctorState extends State<AboutDoctor> {
               textAlign: TextAlign.center,
             ),
           ),
-          Config.spaceSmall,
+          const SizedBox(height: 5),
           SizedBox(
             width: Config.widthSize * 0.75,
             child: Text(
@@ -307,9 +310,7 @@ class _AboutDoctorState extends State<AboutDoctor> {
   }
 }
 
-/// The rest of the doctor's details
-/// (like "Toutes les prestations", "bio", etc.).
-/// No separate images here, since we show them all in AboutDoctor.
+/// Displays the doctor's bio and a list of prestations with Book buttons.
 class DetailBody extends StatelessWidget {
   final Map<String, dynamic> doctor;
   const DetailBody({Key? key, required this.doctor}) : super(key: key);
@@ -317,32 +318,100 @@ class DetailBody extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     Config().init(context);
+    final bio = doctor['bio'] ?? 'Biographie non disponible';
 
-    return Container(
+    // Build prestations list from the doctor document.
+    List<Map<String, dynamic>> prestationList = [];
+    if (doctor.containsKey('prestations') && doctor['prestations'] is Map) {
+      final raw = doctor['prestations'] as Map;
+      raw.forEach((k, v) {
+        if (v is Map) {
+          prestationList.add({
+            'id': k,
+            'nom': v['nom'] ?? 'Unnamed',
+            'description': v['description'] ?? '',
+            'prix': v['prix']?.toString() ?? '',
+            'duree': v['duree']?.toString() ?? '',
+          });
+        }
+      });
+    }
+
+    return Padding(
       padding: const EdgeInsets.all(10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          Config.spaceSmall,
+          const SizedBox(height: 10),
           const Text(
             'Toutes les prestations',
             style: AppStyles.aboutDoctorTitle,
           ),
-          Config.spaceSmall,
+          const SizedBox(height: 10),
           Text(
-            doctor['bio'] ?? 'Biographie non disponible',
+            bio,
             style: AppStyles.aboutDoctorBio,
             softWrap: true,
             textAlign: TextAlign.justify,
           ),
-          // Add more info here if needed
+          const SizedBox(height: 20),
+          if (prestationList.isNotEmpty)
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: prestationList.map((p) {
+                return Card(
+                  margin: const EdgeInsets.symmetric(vertical: 8),
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          p['nom'],
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
+                        ),
+                        const SizedBox(height: 5),
+                        Text('Description: ${p['description']}'),
+                        Text('Durée: ${p['duree']} min'),
+                        Text('Prix: ${p['prix']}'),
+                        const SizedBox(height: 10),
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: ElevatedButton.icon(
+                            onPressed: () {
+                              Navigator.pushNamed(
+                                context,
+                                'booking_page',
+                                arguments: {
+                                  'doctor': doctor,
+                                  'prestationId': p['id'],
+                                },
+                              );
+                            },
+                            icon: const Icon(Icons.event_available),
+                            label: const Text('Book'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }).toList(),
+            )
+          else
+            const Text(
+              'Aucune prestation disponible',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
         ],
       ),
     );
   }
 }
 
-/// Full-screen gallery with left/right arrow navigation & InteractiveViewer for zoom
 class FullScreenGalleryPage extends StatefulWidget {
   final List<String> images;
   final int initialIndex;
@@ -380,7 +449,6 @@ class _FullScreenGalleryPageState extends State<FullScreenGalleryPage> {
   @override
   Widget build(BuildContext context) {
     final images = widget.images;
-
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
@@ -416,8 +484,6 @@ class _FullScreenGalleryPageState extends State<FullScreenGalleryPage> {
               );
             },
           ),
-
-          // Left arrow
           if (_currentIndex > 0)
             Positioned(
               left: 10,
@@ -430,8 +496,6 @@ class _FullScreenGalleryPageState extends State<FullScreenGalleryPage> {
                 ),
               ),
             ),
-
-          // Right arrow
           if (_currentIndex < images.length - 1)
             Positioned(
               right: 10,
@@ -450,12 +514,11 @@ class _FullScreenGalleryPageState extends State<FullScreenGalleryPage> {
   }
 }
 
-/// Custom scroll behavior to allow mouse dragging on web/desktop for PageView.
 class MyCustomScrollBehavior extends MaterialScrollBehavior {
   @override
-  Set<PointerDeviceKind> get dragDevices => {
-    PointerDeviceKind.touch,
-    PointerDeviceKind.mouse,
-    PointerDeviceKind.trackpad,
+  Set<ui.PointerDeviceKind> get dragDevices => {
+    ui.PointerDeviceKind.touch,
+    ui.PointerDeviceKind.mouse,
+    ui.PointerDeviceKind.trackpad,
   };
 }

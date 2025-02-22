@@ -378,7 +378,7 @@ class _SignUpFormState extends State<SignUpForm> {
                       );
 
                       // Navigate to a "Waiting for Verification" page or redirect to the login page.
-                      Navigator.pushReplacementNamed(context, '/login');
+                      Navigator.pushReplacementNamed(context, '/');
                     } else {
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(

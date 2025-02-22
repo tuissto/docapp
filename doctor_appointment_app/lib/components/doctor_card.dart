@@ -1,5 +1,3 @@
-// lib/components/doctor_card.dart
-
 import 'package:doctor_appointment_app/main.dart';
 import 'package:doctor_appointment_app/screens/doctor_details.dart';
 import 'package:doctor_appointment_app/utils/config.dart';
@@ -23,23 +21,21 @@ class DoctorCard extends StatelessWidget {
     final auth = Provider.of<AuthModel>(context, listen: false);
 
     // 1) Build the main image URL: 'images'[0] or 'doctor_profile_url'
-    final dynamicImages =
-    (doctor['images'] is List) ? doctor['images'] as List : [];
-    final List<String> images =
-    dynamicImages.map((e) => e.toString()).toList();
+    final dynamicImages = (doctor['images'] is List) ? doctor['images'] as List : [];
+    final List<String> images = dynamicImages.map((e) => e.toString()).toList();
 
     String mainImageUrl = '';
     if (images.isNotEmpty) {
       mainImageUrl = images[0];
     } else {
-      // fallback to doctor_profile_url
+      // fallback
       final profileUrl = (doctor['doctor_profile_url'] ?? '').toString();
       if (profileUrl.isNotEmpty) {
         mainImageUrl = profileUrl;
       }
     }
 
-    // We'll pass this image into an Image.network or a fallback icon container
+    // The image widget
     Widget buildImageWidget() {
       if (mainImageUrl.trim().isEmpty) {
         // Show a fallback container with an icon
@@ -74,11 +70,25 @@ class DoctorCard extends StatelessWidget {
       }
     }
 
-    // 2) Build the card UI
+    // 2) The card UI
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
       height: 150,
-      child: GestureDetector(
+      child: InkWell(
+        // Instead of a pop-up, do a named route push to "/doctor_details"
+        onTap: () {
+          // Merge isFav into the doc so DoctorDetails can see it
+          final mergedDoc = {
+            ...doctor,
+            'isFav': isFav,
+          };
+
+          Navigator.pushNamed(
+            context,
+            '/doctor_details',
+            arguments: mergedDoc,
+          );
+        },
         child: Card(
           elevation: 5,
           color: Colors.white,
@@ -87,7 +97,7 @@ class DoctorCard extends StatelessWidget {
           ),
           child: Row(
             children: [
-              // Left: Image area (1/3rd width)
+              // Left: Image area
               SizedBox(
                 width: Config.widthSize * 0.33,
                 child: ClipRRect(
@@ -99,7 +109,7 @@ class DoctorCard extends StatelessWidget {
                 ),
               ),
 
-              // Right: Info / Fav button
+              // Right: Info
               Expanded(
                 child: Padding(
                   padding:
@@ -130,7 +140,7 @@ class DoctorCard extends StatelessWidget {
                       ),
                       const Spacer(),
 
-                      // Row with rating placeholder & Fav button
+                      // A row with rating placeholder & Fav button
                       Row(
                         children: <Widget>[
                           const Icon(
@@ -168,20 +178,16 @@ class DoctorCard extends StatelessWidget {
                               isFav ? Icons.favorite : Icons.favorite_border,
                               color: isFav ? Colors.red : Colors.grey,
                             ),
-                            onPressed: () {
-                              // Toggle Fav
-                              final doctorId =
-                                  doctor['doc_id'] ?? doctor['id'];
+                            onPressed: () async {
+                              final doctorId = doctor['doc_id'] ?? doctor['uid'];
                               if (doctorId == null) {
-                                print('Cannot toggle favorite, missing doc_id');
+                                print('Cannot toggle favorite, missing doc_id/uid');
                                 return;
                               }
                               if (isFav) {
-                                // Remove from favorites
-                                auth.removeFavoriteDoctor(doctorId);
+                                await auth.removeFavoriteDoctor(doctorId);
                               } else {
-                                // Add to favorites
-                                auth.addFavoriteDoctor(doctor);
+                                await auth.addFavoriteDoctor(doctor);
                               }
                             },
                           ),
@@ -194,17 +200,6 @@ class DoctorCard extends StatelessWidget {
             ],
           ),
         ),
-        onTap: () {
-          // Navigate to Doctor Details Page
-          MyApp.navigatorKey.currentState!.push(
-            MaterialPageRoute(
-              builder: (_) => DoctorDetails(
-                doctor: doctor,
-                isFav: isFav,
-              ),
-            ),
-          );
-        },
       ),
     );
   }

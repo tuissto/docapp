@@ -40,14 +40,7 @@ class _HomePageState extends State<HomePage> {
     super.dispose();
   }
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final auth = Provider.of<AuthModel>(context, listen: false);
-    auth.fetchAppointments();
-  }
-
-  // Debounce the search input
+  // Debounce the search input changes
   void _onSearchChanged() {
     if (_debounce?.isActive ?? false) _debounce!.cancel();
     _debounce = Timer(const Duration(milliseconds: 300), () {
@@ -75,14 +68,19 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
-  // Fetch user data, appointments, favorites, and all doctors
+  /// Fetch user data, appointments, favorites, and all doctors
   Future<void> _fetchHomeData() async {
     try {
       final auth = Provider.of<AuthModel>(context, listen: false);
+      // 1) Basic user data
       await auth.fetchUserData();
+      // 2) Load appointments
       await auth.fetchAppointments();
+      // 3) Load favorites
       await auth.fetchFavoriteDoctors();
+      // 4) Load all doctors
       await auth.fetchAllDoctors();
+
       setState(() {
         _isLoading = false;
       });
@@ -281,7 +279,8 @@ class _HomePageState extends State<HomePage> {
                           itemCount: upcomingAppointments.length,
                           itemBuilder: (context, index) {
                             return AppointmentCard(
-                              appointment: upcomingAppointments[index],
+                              appointment:
+                              upcomingAppointments[index],
                               color: Colors.blue,
                             );
                           },
@@ -326,8 +325,11 @@ class _HomePageState extends State<HomePage> {
                           children: List.generate(
                             favList.length,
                                 (index) {
+                              final favDoc = favList[index];
+                              // Show the doctor card. Tapping it calls
+                              // the onTap from DoctorCard => DoctorDetails
                               return DoctorCard(
-                                doctor: favList[index],
+                                doctor: favDoc,
                                 isFav: true,
                               );
                             },
@@ -357,7 +359,6 @@ class _HomePageState extends State<HomePage> {
 
   /// Build the CircleAvatar for the doc in search results
   Widget _buildDoctorAvatar(Map<String, dynamic> docMap) {
-    // Attempt to get images array
     final dynamicImages =
     docMap['images'] is List ? docMap['images'] as List : [];
     final List<String> images = dynamicImages.map((e) => e.toString()).toList();
