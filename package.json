@@ -1,0 +1,11 @@
+{
+  "name": "doctor-appointment-project",
+  "private": true,
+  "workspaces": [
+    "doc_app_Laravel"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w doc_app_Laravel",
+    "build": "npm run build -w doc_app_Laravel"
+  }
+}
